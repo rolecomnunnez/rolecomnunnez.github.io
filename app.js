@@ -85,6 +85,9 @@ function tecladoSenha(inp) {
 document.addEventListener('focusin', e => { const t = e.target; if (t.matches && (t.matches('input[type=password]') || t.dataset.teclado)) tecladoSenha(t); });
 new MutationObserver(() => $$('input[type=password]:not([data-teclado])').forEach(tecladoSenha)).observe(document.documentElement, { childList: true, subtree: true });
 
+// Selos com "ⓘ": ao tocar, mostra o detalhe (no computador também aparece ao passar o mouse).
+document.addEventListener('click', e => { const s = e.target.closest && e.target.closest('[data-info]'); if (s && s.dataset.info) { e.stopPropagation(); toast(s.dataset.info); } });
+
 /* Texto de descrição como a norma pede: começa com maiúscula; se veio TUDO EM MAIÚSCULAS, vira normal.
    "MERCADO DO DIA" → "Mercado do dia"; "jantar no Bar do Zé" → "Jantar no Bar do Zé". */
 function fraseNormal(s) {
@@ -130,6 +133,17 @@ function aplicar(d, o) {
   if (o.op === 'presenca') {
     const g = (d.gastos || []).find(x => x.id === o.id);
     if (g) { g.ausentes = (g.ausentes || []).filter(x => x !== o.pessoa); if (!o.vai) g.ausentes.push(o.pessoa); }
+    return d;
+  }
+  if (o.op === 'juntar') {
+    // mesma troca que a planilha faz: tudo do repetido passa para quem fica
+    const pd = (d.pessoas || []).find(p => p.id === o.de), pp = (d.pessoas || []).find(p => p.id === o.para);
+    if (!pd || !pp) return d;
+    if (!pp.email && pd.email) pp.email = pd.email;
+    d.pessoas = d.pessoas.filter(p => p.id !== o.de);
+    const novo = JSON.parse(JSON.stringify(d).split('"' + o.de + '"').join('"' + o.para + '"'));
+    Object.keys(novo).forEach(k => { d[k] = novo[k]; });
+    (d.gastos || []).forEach(g => ['participantes', 'ausentes'].forEach(k => { if (Array.isArray(g[k])) g[k] = [...new Set(g[k])]; }));
     return d;
   }
   if (o.op === 'votar') {
@@ -331,12 +345,13 @@ function sairDaContaNunnez() {
   CONTA = null; S = null; history.replaceState(null, '', location.pathname); render();
 }
 // Abre a viagem usando a conta (pela lista ou pelo link de convite): a planilha acha/cria o cadastro da pessoa.
-async function abrirComConta(v, c) {
+async function abrirComConta(v, c, escolha) {
   S = { v, c: String(c).toUpperCase(), tok: '', dados: null, fila: ls.get('rv:fila:' + v, []), eu: '', enviando: false, erro: '', login: null };
   history.replaceState(null, '', '#v=' + v + '&c=' + S.c);
   $('#tela').innerHTML = '<div class="vazio"><b>⏳</b>Abrindo a viagem…</div>';
   try {
-    const j = await chamar({ acao: 'contaAbrir', ctok: CONTA.ctok, v, c: S.c });
+    const j = await chamar({ acao: 'contaAbrir', ctok: CONTA.ctok, v, c: S.c, ...(escolha || {}) });
+    if (j.escolher) return telaQuemSou(v, c, j);
     guardarSessao(j.tok, j.eu);
     S.dados = j.dados; guardar(); ABA = abaDoMomento(S.dados.viagem); render();
     if (S.fila.length) enviar();
@@ -345,6 +360,22 @@ async function abrirComConta(v, c) {
     toast(e.servidor ? e.message : 'Sem internet para abrir a viagem.');
     S = null; history.replaceState(null, '', location.pathname); render();
   }
+}
+// Entrou pelo convite e a planilha não achou o e-mail: a pessoa diz qual nome da lista é ela.
+function telaQuemSou(v, c, j) {
+  ['#abas', '#fab', '#btn-sync', '#btn-conta', '#hero-v'].forEach(s => $(s).classList.add('oculto'));
+  $('#btn-voltar').classList.remove('oculto');
+  $('#titulo').textContent = j.viagem || 'Viagem'; $('#subtitulo').textContent = 'Quem é você?';
+  $('#tela').innerHTML = `<div class="cartao">
+    <h2>Quem é você nesta viagem?</h2>
+    <p class="mut" style="margin-top:-4px">O organizador já cadastrou estas pessoas. Toque no seu nome para entrar com os seus gastos.</p>
+    <div style="display:grid;gap:8px">${j.pessoas.map(p => `<button class="btn lg" data-sou="${esc(p.id)}">👤 ${esc(p.nome)}</button>`).join('')}</div>
+    <button class="btn lg" id="nao-estou" style="margin-top:14px;border-style:dashed">➕ Não estou na lista</button>
+  </div>`;
+  $$('[data-sou]').forEach(b => b.onclick = () => {
+    if (confirm(`Confirmar: você é ${b.textContent.replace('👤', '').trim()}?`)) abrirComConta(v, c, { pessoa: b.dataset.sou });
+  });
+  $('#nao-estou').onclick = () => { if (confirm('Entrar como uma pessoa nova na viagem? Use só se o seu nome não estiver na lista.')) abrirComConta(v, c, { novo: true }); };
 }
 async function continuarDepoisDoLogin() {
   const p = ls.get('rv:pendente', null);
@@ -1439,7 +1470,9 @@ function selo(g) {
   if (cadaUm(g)) return '<span class="selo" style="background:var(--suave);color:var(--azul)">cada um paga o seu</span>';
   if ((g.pagamentos || []).length && g.status === 'previsto') {
     const pct = Math.round(C.jaPagoItem(g, S.dados) / Math.max(1, C.valorDoGasto(g)) * 100);
-    return `<span class="selo">pago ${pct}% · falta ${brl(C.valorDoGasto(g) - C.jaPagoItem(g, S.dados))}</span>`;
+    // quem pagou cada parte (aparece ao passar o mouse ou tocar)
+    const quem = (g.pagamentos || []).filter(p => C.centavos(p.valor) > 0).map(p => `${primeiroNome(p.pagoPor)} pagou ${brl(C.centavos(p.valor))}${p.data ? ' em ' + fmtData(p.data) : ''}`).join(' · ');
+    return `<span class="selo clica-info" title="${esc(quem)}" data-info="${esc(quem)}" role="button" tabindex="0">pago ${pct}% · falta ${brl(C.valorDoGasto(g) - C.jaPagoItem(g, S.dados))} ⓘ</span>`;
   }
   return pago(g) ? `<span class="selo" style="background:var(--suave);color:var(--pos)">pago por ${esc(primeiroNome(g.pagoPor))}</span>` : '<span class="selo">a pagar</span>';
 }
@@ -1812,7 +1845,7 @@ function telaGrupo() {
     const extra = [org ? acesso : (p.papel === 'organizador' ? '👑 organizador' : ''), p.chegada || p.saida ? `${p.chegada ? 'chega ' + fmtData(p.chegada) : ''}${p.chegada && p.saida ? ', ' : ''}${p.saida ? 'sai ' + fmtData(p.saida) : ''}` : '', Number(p.peso) && Number(p.peso) !== 1 ? `conta como ${fmtNum(p.peso)}` : '', ...(p.restricoes || []).map(r => (C.RESTRICOES[r] || r).split(' ').slice(1).join(' ').toLowerCase()), p.pix ? 'Pix ✓' : 'sem Pix'].filter(Boolean).join(' · ');
     const pode = org || p.id === S.eu;
     return `<li class="${pode ? 'clica' : ''}" data-p="${esc(p.id)}">${avatar(p.id)}<span class="meio"><b>${esc(p.nome)}${p.id === S.eu ? ' (você)' : ''}</b><small>${esc(extra)}</small></span>${pode ? '<span class="mut">›</span>' : ''}</li>`;
-  }).join('')}</ul>${org ? '<button class="btn lg sua" id="add-p" style="margin:6px 0 12px">+ Adicionar pessoa</button>' : '<p class="dica" style="margin:6px 0 12px">Só o organizador cadastra pessoas. Toque no seu nome para editar seus dados.</p>'}</div>
+  }).join('')}</ul>${org ? `<button class="btn lg sua" id="add-p" style="margin:6px 0 ${S.dados.pessoas.length > 1 ? '8px' : '12px'}">+ Adicionar pessoa</button>${S.dados.pessoas.length > 1 ? '<button class="btn lg" id="juntar-p" style="margin:0 0 12px">🔗 Juntar pessoa repetida</button>' : ''}` :'<p class="dica" style="margin:6px 0 12px">Só o organizador cadastra pessoas. Toque no seu nome para editar seus dados.</p>'}</div>
   ${org || (S.dados.carros || []).length ? `<div class="titulo-sec">Carros (${(S.dados.carros || []).length})</div>
   <div class="cartao" style="padding:4px 16px">
     ${(S.dados.carros || []).length ? '' : '<p class="mut peq">Cadastre os carros para dividir aluguel, combustível e pedágio só entre quem foi em cada um.</p>'}
@@ -1831,6 +1864,7 @@ function telaGrupo() {
   $('#tela').innerHTML = html;
   $('#conv-comp').onclick = () => compartilhar(leg ? `Entra na viagem "${v.nome}" no ${NOME} para a gente dividir os gastos: ${link}` : `🧳 Entra na viagem "${v.nome}" no ${NOME}: ${link}\nEntre com sua conta Nunnez (ou crie uma em 1 minuto) e você já cai na viagem. Lá tem o roteiro, quanto fica para cada um e onde lançar os gastos.`, link);
   $('#conv-copia').onclick = () => copiar(link);
+  if ($('#juntar-p')) $('#juntar-p').onclick = formJuntar;
   if ($('#v-zap')) $('#v-zap').onchange = e => {
     let x = e.target.value.trim();
     if (x && !/^https?:\/\//i.test(x)) x = 'https://' + x;
@@ -2201,6 +2235,35 @@ function formCarro(c) {
     const item = { id: c.id, nome: String(fd.get('nome')).trim(), tipo: fd.get('tipo'), dono: fd.get('tipo') === 'particular' ? fd.get('dono') : '', consumo: lerNum(fd.get('consumo')), valorKm: fd.get('tipo') === 'particular' ? lerNum(fd.get('valorKm')) : '', ocupantes: fd.getAll('oc') };
     if (!item.ocupantes.length) { e.preventDefault(); return toast('Marque quem vai no carro.'); }
     op({ op: 'salvar', tipo: 'carro', item });
+  };
+}
+
+/* Organizador: junta uma pessoa cadastrada duas vezes (ex.: entrou pelo convite e virou outra). */
+function formJuntar() {
+  const ps = S.dados.pessoas;
+  const usoDe = id => {
+    const n = (S.dados.gastos || []).filter(g => g.pagoPor === id || (g.pagamentos || []).some(p => p.pagoPor === id)).length;
+    return n ? ` · pagou ${n} ${n === 1 ? 'gasto' : 'gastos'}` : '';
+  };
+  const opc = sel => ps.map(p => `<option value="${esc(p.id)}" ${p.id === sel ? 'selected' : ''}>${esc(p.nome)}${p.email ? ' · ' + esc(p.email) : ' · sem conta'}${usoDe(p.id)}</option>`).join('');
+  // sugestão: o mais novo com conta sai, o cadastrado pelo organizador (sem conta) fica
+  const semConta = ps.find(p => !p.email && p.id !== S.eu), comConta = ps.slice().reverse().find(p => p.email && p.id !== S.eu && p.papel !== 'organizador');
+  const f = janela('Juntar pessoa repetida', `
+    <p class="mut" style="margin-top:0">Use quando a mesma pessoa aparece duas vezes. Tudo da repetida (gastos que pagou, divisões, pagamentos, passagens, votos e a conta de acesso) passa para a que fica, e a repetida some.</p>
+    <label class="cp"><span>Quem FICA (o cadastro certo)</span><select name="para">${opc(semConta ? semConta.id : '')}</select></label>
+    <label class="cp"><span>Quem SAI (o repetido)</span><select name="de">${opc(comConta ? comConta.id : '')}</select></label>
+    <p class="dica">O nome que fica é o de cima. O e-mail e a senha da conta passam para ele, então a pessoa continua entrando normalmente.</p>`,
+    `<button class="btn" value="x" formnovalidate>Cancelar</button><button class="btn pri" value="ok">Juntar</button>`);
+  f.onsubmit = e => {
+    if (!e.submitter || e.submitter.value !== 'ok') return;
+    const fd = new FormData(f), de = fd.get('de'), para = fd.get('para');
+    if (!de || !para || de === para) { e.preventDefault(); return toast('Escolha duas pessoas diferentes.'); }
+    if (de === S.eu) { e.preventDefault(); return toast('Você não pode juntar a si mesmo em outra pessoa.'); }
+    const pd = pessoa(de), pp = pessoa(para);
+    if (pd.email && pp.email) { e.preventDefault(); return toast('As duas já têm conta. Só dá para juntar quando uma delas não tem e-mail.'); }
+    if (!confirm(`Juntar "${pd.nome}" em "${pp.nome}"?\n\nTudo de ${pd.nome} passa para ${pp.nome} e ${pd.nome} sai da lista. Não tem como desfazer.`)) return e.preventDefault();
+    op({ op: 'juntar', de, para, nomeDe: pd.nome, nomePara: pp.nome });
+    toast(`Pronto: ${pd.nome} foi juntado em ${pp.nome}.`);
   };
 }
 

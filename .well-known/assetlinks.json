@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.nunnez.app",
+        "sha256_cert_fingerprints": ["D6:D0:94:62:23:83:93:88:95:7C:C9:7E:5A:9F:75:38:B2:47:57:78:D8:A8:C3:12:1A:F1:4E:B1:B0:F8:9A:58"]
+      }
+    }]

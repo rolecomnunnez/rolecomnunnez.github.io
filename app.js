@@ -1495,9 +1495,8 @@ function telaRoteiro() {
     html += `<div class="dia"><span>${fmtDia(p.data)}</span><span data-clima="${esc(p.data)}" style="font-weight:600"></span></div>` + trechos.filter(t => t.antes === p.chave).map(htmlTrecho).join('') +
       `<div class="cartao" style="padding:12px 16px">🔑 <b>Devolução: ${esc(p.g.descricao)}</b><div class="peq">📍 <a href="${esc(linkMapa(p.local))}" target="_blank" rel="noopener">${esc(p.local)}</a></div></div>`;
   });
-  html += `<details class="cartao" style="margin-top:18px"><summary style="cursor:pointer;font-weight:700">🧮 Calculadora: estimativa de combustível e custos</summary><div id="plano-box" style="margin-top:12px"></div></details>`;
+  // (a calculadora de estimativa saiu do Roteiro; a função telaPlano continua aqui caso volte em outro lugar)
   $('#tela').innerHTML = html;
-  telaPlano();
   buscarRotas(trechos);
   ligarEnquetes();
   preencherClima();

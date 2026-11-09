@@ -85,6 +85,25 @@ function tecladoSenha(inp) {
 document.addEventListener('focusin', e => { const t = e.target; if (t.matches && (t.matches('input[type=password]') || t.dataset.teclado)) tecladoSenha(t); });
 new MutationObserver(() => $$('input[type=password]:not([data-teclado])').forEach(tecladoSenha)).observe(document.documentElement, { childList: true, subtree: true });
 
+/* Texto de descrição como a norma pede: começa com maiúscula; se veio TUDO EM MAIÚSCULAS, vira normal.
+   "MERCADO DO DIA" → "Mercado do dia"; "jantar no Bar do Zé" → "Jantar no Bar do Zé". */
+function fraseNormal(s) {
+  s = String(s || '').trim().replace(/\s+/g, ' ');
+  if (!s) return s;
+  const letras = s.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ]/g, '');
+  if (letras.length > 3 && letras === letras.toUpperCase()) s = s.toLowerCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+// Códigos (voo, sigla de aeroporto, localizador): maiúsculas enquanto digita.
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (!t.matches || !t.matches('input[data-maiusc]')) return;
+  const ini = t.selectionStart, fim = t.selectionEnd, up = t.value.toUpperCase();
+  if (up !== t.value) { t.value = up; try { t.setSelectionRange(ini, fim); } catch (x) {} }
+});
+// Descrições: arruma ao sair do campo (antes de salvar).
+document.addEventListener('change', e => { const t = e.target; if (t.matches && t.matches('input[data-frase]')) t.value = fraseNormal(t.value); });
+
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg;
   // Com uma janela aberta, o aviso precisa ficar dentro dela (senão aparece atrás).
@@ -615,7 +634,8 @@ function telaInicio() {
 
 const cadaUm = g => g.modo === 'porPessoa' || g.status === 'cada_um'; // cada um paga o seu na hora (só estimativa)
 const pago = g => g.status !== 'previsto' && !cadaUm(g);
-function totalGeral() { return (S.dados.gastos || []).filter(pago).reduce((s, g) => s + C.valorDoGasto(g), 0); }
+const soMeu = g => g.modo === 'sozinho'; // gasto só de quem pagou: aparece na lista, mas fica fora do total do grupo e do acerto
+function totalGeral() { return (S.dados.gastos || []).filter(g => pago(g) && !soMeu(g)).reduce((s, g) => s + C.valorDoGasto(g), 0); }
 function gastosOrdenados() {
   return (S.dados.gastos || []).filter(pago).sort((a, b) => (b.data || '').localeCompare(a.data || '') || String(b.id).localeCompare(String(a.id)));
 }
@@ -641,7 +661,7 @@ function telaGastos() {
   gs.forEach(g => {
     if (g.data !== diaAtual) {
       fechar(); diaAtual = g.data;
-      const soma = gs.filter(x => x.data === g.data).reduce((s, x) => s + C.valorDoGasto(x), 0);
+      const soma = gs.filter(x => x.data === g.data && !soMeu(x)).reduce((s, x) => s + C.valorDoGasto(x), 0);
       html += `<div class="dia"><span>${g.data ? fmtDia(g.data) : 'Sem data'}</span><span class="num">${brl(soma)}</span></div>`;
     }
     const cat = C.CAT[g.categoria] || C.CAT.outros;
@@ -650,8 +670,8 @@ function telaGastos() {
     const minha = partes[S.eu];
     const estr = g.moeda && g.moeda !== 'BRL' ? ` · ${g.moeda} ${fmtNum(g.valor)}` : '';
     bloco += `<li class="clica" data-g="${esc(g.id)}"><span class="ico">${cat.icone}</span><span class="meio">
-      <b>${esc(g.descricao || cat.nome)}${g.status === 'pendente' ? '<span class="selo">pendente</span>' : ''}${g.foto ? ' 📎' : ''}</b>
-      <small>${esc(primeiroNome(g.pagoPor))} pagou · ${g.categoria === 'caucao' ? `caução de ${brl(C.centavos(g.valor))}, ${C.valorDoGasto(g) ? 'parte retida' : 'a devolver'}` : `${n} ${n === 1 ? 'pessoa' : 'pessoas'}`}${estr}${minha ? ` · sua parte ${brl(minha)}` : ''}</small></span>
+      <b>${esc(g.descricao || cat.nome)}${soMeu(g) ? '<span class="selo" style="background:var(--suave);color:var(--tx)">só meu</span>' : g.status === 'pendente' ? '<span class="selo">pendente</span>' : ''}${g.foto ? ' 📎' : ''}</b>
+      <small>${soMeu(g) ? `só de ${esc(primeiroNome(g.pagoPor))} · fora do acerto${estr}` : `${esc(primeiroNome(g.pagoPor))} pagou · ${g.categoria === 'caucao' ? `caução de ${brl(C.centavos(g.valor))}, ${C.valorDoGasto(g) ? 'parte retida' : 'a devolver'}` : `${n} ${n === 1 ? 'pessoa' : 'pessoas'}`}${estr}${minha ? ` · sua parte ${brl(minha)}` : ''}`}</small></span>
       <span class="num"><b>${brl(C.valorDoGasto(g))}</b></span></li>`;
   });
   fechar();
@@ -1098,15 +1118,15 @@ function formPassagem(pid, tr) {
     <label class="cp oculto" id="bx-outra"><span>Qual companhia?</span><input type="text" name="ciaOutra" value="${esc(CIAS.includes(ciaAtual) ? '' : ciaAtual)}"></label>
     <div class="grade2"><label class="cp"><span>Número do voo</span><span style="display:flex;align-items:stretch">
         <b id="pref-voo" style="display:grid;place-items:center;padding:0 10px;background:var(--suave);border:1px solid var(--lin);border-right:0;border-radius:10px 0 0 10px;font-size:1rem"></b>
-        <input type="text" name="voo" value="${esc(semPrefixo(x.voo || '', ciaAtual))}" placeholder="3456" required autocapitalize="characters" style="border-radius:0 10px 10px 0;min-width:0"></span></label>
+        <input type="text" name="voo" value="${esc(semPrefixo(x.voo || '', ciaAtual))}" placeholder="3456" required autocapitalize="characters" data-maiusc style="border-radius:0 10px 10px 0;min-width:0"></span></label>
       <label class="cp"><span>Data do voo</span><input type="date" name="dataVoo" value="${esc((x.saida || '').slice(0, 10) || dataP)}"></label></div>
     <button type="button" class="btn lg sua" id="buscar-voo" style="margin:-4px 0 6px">🔎 Buscar horários pelo número do voo</button>
     <p class="dica" id="res-voo">Digite o número e a data e toque em buscar: companhia, aeroportos e horários se preenchem sozinhos.</p>
-    <div class="grade2"><label class="cp"><span>De</span><input type="text" name="de" value="${esc(deP)}" placeholder="GYN"></label><label class="cp"><span>Para</span><input type="text" name="para" value="${esc(paraP)}" placeholder="CGB"></label></div>
+    <div class="grade2"><label class="cp"><span>De</span><input type="text" name="de" value="${esc(deP)}" placeholder="GYN" autocapitalize="characters" data-maiusc></label><label class="cp"><span>Para</span><input type="text" name="para" value="${esc(paraP)}" placeholder="CGB" autocapitalize="characters" data-maiusc></label></div>
     <label class="cp"><span>Saída (data e hora)</span><input type="datetime-local" name="saida" value="${esc(x.saida || (dataP ? dataP + 'T08:00' : ''))}" required></label>
     <label class="cp"><span>Chegada (data e hora)</span><input type="datetime-local" name="chegada" value="${esc(x.chegada || (dataP ? dataP + 'T10:00' : ''))}" required></label>
     <p class="dica">A chegada aparece para todo mundo na lista de chegadas (ajuda a combinar quem busca quem).</p>
-    <div class="grade2"><label class="cp"><span>Localizador (opcional)</span><input type="text" name="localizador" value="${esc(x.localizador || '')}"></label><label class="cp"><span>Valor pago (opcional)</span><input type="text" inputmode="decimal" name="valor" value="${esc(fmtNum(x.valor))}"></label></div>
+    <div class="grade2"><label class="cp"><span>Localizador (opcional)</span><input type="text" name="localizador" value="${esc(x.localizador || '')}" autocapitalize="characters" data-maiusc></label><label class="cp"><span>Valor pago (opcional)</span><input type="text" inputmode="decimal" name="valor" value="${esc(fmtNum(x.valor))}"></label></div>
     <p class="dica">Localizador e valor só você e o organizador veem. O valor não entra na divisão.</p>
     <label class="cp"><span>Observação</span><input type="text" name="obs" value="${esc(x.obs || '')}" placeholder="Ex.: conexão em Brasília"></label>`,
     `${x.id ? '<button class="btn perigo" value="del" formnovalidate>Apagar</button>' : ''}<button class="btn pri" value="ok">Salvar</button>`);
@@ -1525,7 +1545,7 @@ function formRoteiro(g) {
   const sitInicial = pags.length ? 'partes' : pago(g) ? 'pago' : 'previsto';
   const f = janela(novo ? 'Adicionar ao roteiro' : 'Editar item do roteiro', `
     <div class="chips" id="rot-cats" style="margin-bottom:12px">${CATS_ROTEIRO.map(c => `<button type="button" class="chip" data-c="${c}" aria-pressed="${c === cat}">${C.CAT[c].icone} ${NOME_ROTEIRO[c]}</button>`).join('')}</div>
-    <label class="cp"><span>O que é</span><input type="text" name="descricao" required value="${esc(g.descricao)}" placeholder="Ex.: Passeio de barco na Chapada"></label>
+    <label class="cp"><span>O que é</span><input type="text" name="descricao" required value="${esc(g.descricao)}" placeholder="Ex.: Passeio de barco na Chapada" autocapitalize="sentences" data-frase></label>
     <label class="cp"><span id="rot-rot-local">Onde (endereço ou nome do lugar)</span><input type="text" name="local" value="${esc(g.local)}" placeholder="Ex.: Chapada dos Guimarães, MT"></label>
     <p class="dica" style="margin-top:-8px">Com cidade e estado, o app calcula os km e o tempo de carro entre os pontos do roteiro.</p>
     <div class="grade2"><label class="cp"><span id="rot-rot-data">Data</span><input type="date" name="data" value="${esc(g.data)}"></label><label class="cp"><span>Hora</span><input type="time" name="hora" value="${esc(g.hora)}"></label></div>
@@ -1647,7 +1667,7 @@ function formRoteiro(g) {
     if (!pp && sit === 'partes' && somaPags > C.centavos(valor)) { e.preventDefault(); return toast('Os pagamentos passam do valor total.'); }
     const usaPartes = !pp && sit === 'partes';
     const infoNova = {}; ['checkin', 'checkout', 'wifi', 'wifiSenha', 'contato', 'instrucoes'].forEach(k => { const x = String(fd.get('i_' + k) || '').trim(); if (x) infoNova[k] = x; });
-    const item = { ...g, roteiro: 'sim', categoria: cat, descricao: String(fd.get('descricao')).trim(), local: String(fd.get('local')).trim(), link: /^https?:\/\//i.test(link) ? link : (link ? 'https://' + link : ''),
+    const item = { ...g, roteiro: 'sim', categoria: cat, descricao: fraseNormal(fd.get('descricao')), local: String(fd.get('local')).trim(), link: /^https?:\/\//i.test(link) ? link : (link ? 'https://' + link : ''),
       data: fd.get('data'), hora: fd.get('hora'), ate: fd.get('ate') || '', valor, moeda: 'BRL', cambio: 1, valorBRL: valor, modo: pp ? 'porPessoa' : fd.get('modo'),
       status: pp ? 'cada_um' : usaPartes ? (somaPags >= C.centavos(valor) ? '' : 'previsto') : sit === 'pago' ? '' : 'previsto',
       pagoPor: pp ? '' : usaPartes ? pags[0].pagoPor : sit === 'pago' ? fd.get('pagoPor') : '',
@@ -1779,7 +1799,7 @@ function telaGrupo() {
     <fieldset style="border:0;padding:0;margin:0" ${org ? '' : 'disabled'}>
     <label class="cp"><span>Nome</span><input type="text" id="v-nome" value="${esc(v.nome)}"></label>
     <div class="grade2"><label class="cp"><span>Início</span><input type="date" id="v-ini" value="${esc(v.inicio)}"></label><label class="cp"><span>Fim</span><input type="date" id="v-fim" value="${esc(v.fim)}"></label></div>
-    <div class="grade2"><label class="cp"><span>Destino</span><input type="text" id="v-dest" value="${esc(v.destino || '')}" placeholder="Ex.: Cuiabá"></label><label class="cp"><span>Aeroporto (sigla)</span><input type="text" id="v-aero" value="${esc(v.aeroporto || '')}" placeholder="Ex.: CGB" maxlength="4"></label></div>
+    <div class="grade2"><label class="cp"><span>Destino</span><input type="text" id="v-dest" value="${esc(v.destino || '')}" placeholder="Ex.: Cuiabá"></label><label class="cp"><span>Aeroporto (sigla)</span><input type="text" id="v-aero" value="${esc(v.aeroporto || '')}" placeholder="Ex.: CGB" maxlength="4" autocapitalize="characters" data-maiusc></label></div>
     </fieldset>
     <p class="dica" style="margin-bottom:0">${org ? 'As datas valem para quem não tem chegada/saída própria. Destino e aeroporto são usados na busca de passagens.' : 'Só o organizador muda os dados da viagem.'}</p>
   </div>
@@ -1901,7 +1921,7 @@ function novaViagem() {
   const f = janela('Nova viagem', `
     <label class="cp"><span>Nome da viagem</span><input type="text" name="nome" required placeholder="Ex.: Mato Grosso 2027"></label>
     <div class="grade2"><label class="cp"><span>Início</span><input type="date" name="inicio"></label><label class="cp"><span>Fim</span><input type="date" name="fim"></label></div>
-    <div class="grade2"><label class="cp"><span>Destino</span><input type="text" name="destino" placeholder="Ex.: Cuiabá"></label><label class="cp"><span>Aeroporto (sigla)</span><input type="text" name="aeroporto" placeholder="Ex.: CGB" maxlength="4"></label></div>
+    <div class="grade2"><label class="cp"><span>Destino</span><input type="text" name="destino" placeholder="Ex.: Cuiabá"></label><label class="cp"><span>Aeroporto (sigla)</span><input type="text" name="aeroporto" placeholder="Ex.: CGB" maxlength="4" autocapitalize="characters" data-maiusc></label></div>
     <div class="titulo-sec" style="margin-top:4px">Você (organizador)</div>
     ${CONTA ? `<p class="mut" style="margin:0 0 10px">👑 ${esc(CONTA.nome)} · ${esc(CONTA.email)}</p>` : `
     <label class="cp"><span>Seu nome</span><input type="text" name="meuNome" required autocomplete="name"></label>
@@ -2218,7 +2238,7 @@ function formGasto(g) {
       <label class="cp"><span id="rot-valor">Valor</span><input type="text" inputmode="decimal" name="valor" required value="${esc(fmtNum(g.valor))}" placeholder="0,00" style="font-size:1.3rem;font-weight:700"></label>
       <label class="cp"><span>Moeda</span><select name="moeda">${moedas.map(m => `<option ${m === (g.moeda || 'BRL') ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
     </div>
-    <label class="cp"><span>Descrição</span><input type="text" name="descricao" value="${esc(g.descricao)}" placeholder="Ex.: Jantar no restaurante" autocomplete="off"></label>
+    <label class="cp"><span>Descrição</span><input type="text" name="descricao" value="${esc(g.descricao)}" placeholder="Ex.: Jantar no restaurante" autocomplete="off" autocapitalize="sentences" data-frase></label>
     <div class="cats" id="cats">${C.CATEGORIAS.map(c => `<button type="button" data-cat="${c.id}" aria-pressed="${c.id === st.cat}"><b>${c.icone}</b>${c.nome}</button>`).join('')}</div>
     <div id="bx-cambio" class="oculto">
       <div class="grade2"><label class="cp"><span>Cotação (R$ por 1)</span><input type="text" inputmode="decimal" name="cambio" value="${esc(fmtNum(g.cambio))}"></label>
@@ -2255,7 +2275,7 @@ function formGasto(g) {
     const valores = {};
     S.dados.pessoas.forEach(p => { const x = lerNum(fd.get('val-' + p.id)); if (x !== '' && x > 0) valores[p.id] = x; });
     return {
-      ...g, categoria: st.cat, descricao: String(fd.get('descricao')).trim(), valor, moeda, cambio,
+      ...g, categoria: st.cat, descricao: fraseNormal(fd.get('descricao')), valor, moeda, cambio,
       valorBRL: valor === '' ? '' : Math.round(valor * cambio * 100) / 100,
       data: fd.get('data'), pagoPor: fd.get('pagoPor'), modo: st.modo, carro: st.modo === 'carro' ? fd.get('carro') : '',
       participantes: st.modo === 'escolher' ? fd.getAll('part') : [], valores: st.modo === 'valores' ? valores : {},

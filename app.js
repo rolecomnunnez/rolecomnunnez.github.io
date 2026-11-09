@@ -1238,8 +1238,18 @@ async function buscarRotas(trechos) {
     const j = await req('rotas', { pares: faltam.slice(0, 25) });
     faltam.slice(0, 25).forEach((par, i) => { ROTAS[chaveRota(par[0], par[1])] = j.rotas[i]; });
     ls.set('rv:rotas', ROTAS);
-    if (ABA === 'roteiro') render();
+    if (ABA === 'roteiro' || ABA === 'resumo') render();
   } catch (e) {} finally { buscandoRotas = false; }
+}
+// Km de estrada somando os trajetos do roteiro (passeio a partir da hospedagem conta ida e volta).
+function kmRoteiro() {
+  const { trechos, pontos } = trechosRoteiro();
+  const comKm = trechos.map(t => ({ t, r: ROTAS[chaveRota(t.de, t.para)] })).filter(x => x.r && !x.r.erro);
+  return {
+    trechos, pontos, n: trechos.length, ok: comKm.length,
+    km: comKm.reduce((s, x) => s + x.r.km * (x.t.idaVolta ? 2 : 1), 0),
+    min: comKm.reduce((s, x) => s + x.r.min * (x.t.idaVolta ? 2 : 1), 0)
+  };
 }
 function htmlTrecho(t) {
   const r = ROTAS[chaveRota(t.de, t.para)];
@@ -1450,10 +1460,9 @@ function telaRoteiro() {
   if (org) html += `<div class="btns" style="margin-bottom:6px"><button class="btn pri" id="add-rot">+ Adicionar ao roteiro</button>${itens.length ? '<button class="btn" id="rot-zap">Mandar no WhatsApp</button><button class="btn" id="rot-mail">Avisar por e-mail</button>' : ''}</div>`;
   html += htmlEnquetes();
   if (!itens.length) html += `<div class="cartao vazio"><b>🗺️</b>${org ? 'Lance aqui a hospedagem, os passeios e o que mais for da viagem, com local, data e valor. O valor é dividido entre quem vai.' : 'O organizador ainda não montou o roteiro.'}</div>`;
-  const { trechos, pontos } = trechosRoteiro();
+  const { trechos, pontos, km, min, ok: nKm } = kmRoteiro();
   if (trechos.length) {
-    const comKm = trechos.map(t => ({ t, r: ROTAS[chaveRota(t.de, t.para)] })).filter(x => x.r && !x.r.erro);
-    const km = comKm.reduce((s, x) => s + x.r.km * (x.t.idaVolta ? 2 : 1), 0), min = comKm.reduce((s, x) => s + x.r.min * (x.t.idaVolta ? 2 : 1), 0);
+    const comKm = { length: nKm };
     const paradas = pontos.map(p => p.local).filter((l, i, a) => i === 0 || l.trim().toLowerCase() !== a[i - 1].trim().toLowerCase()).slice(0, 10);
     const mapa = 'https://www.google.com/maps/dir/' + paradas.map(encodeURIComponent).join('/');
     html += `<div class="cartao" style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -1687,7 +1696,7 @@ function formRoteiro(g) {
 function telaResumo() {
   const gs = (S.dados.gastos || []).filter(pago);
   // Tudo o que foi lançado: gastos pagos + roteiro a pagar + o que cada um paga na hora.
-  const todos = (S.dados.gastos || []).filter(g => C.totalItem(g, S.dados) > 0);
+  const todos = (S.dados.gastos || []).filter(g => !soMeu(g) && C.totalItem(g, S.dados) > 0);
   const val = g => C.totalItem(g, S.dados);
   const total = todos.reduce((s, g) => s + val(g), 0);
   if (!total) { $('#tela').innerHTML = `<div class="cartao vazio"><b>📊</b>O resumo aparece assim que houver algo com valor no roteiro ou nos gastos.</div>`; return; }
@@ -1705,6 +1714,21 @@ function telaResumo() {
   const maxP = Math.max(1, ...pagou.map(p => sal.pago[p.id] || 0));
   const porPessoa = S.dados.pessoas.slice().sort((a, b) => (partes[b.id] || 0) - (partes[a.id] || 0));
   const maxPP = Math.max(1, ...porPessoa.map(p => partes[p.id] || 0));
+  // Números da viagem (automático): km do roteiro, dias e totais por grupo de gasto.
+  const rk = kmRoteiro(); buscarRotas(rk.trechos);
+  const v = S.dados.viagem;
+  const dias = v.inicio && v.fim ? Math.round((new Date(v.fim + 'T12:00') - new Date(v.inicio + 'T12:00')) / 864e5) + 1 : 0;
+  const GRUPOS = [['🏠', 'Hospedagem', ['hospedagem']], ['🚗', 'Transporte', ['aluguel', 'combustivel', 'pedagio', 'estacionamento', 'desgaste']],
+    ['🎟️', 'Passeios, trilhas e eventos', ['passeios', 'eventos', 'trilhas']], ['🍽️', 'Comida e bebida', ['alimentacao', 'mercado', 'bebidas']], ['📦', 'Outros', null]];
+  const conhecidas = GRUPOS.flatMap(x => x[2] || []);
+  const porGrupo = GRUPOS.map(([ic, nm, cs]) => [ic, nm, Object.entries(porCat).filter(([c]) => cs ? cs.includes(c) : !conhecidas.includes(c)).reduce((s, x) => s + x[1], 0), cs]).filter(x => x[2] > 0);
+  const transp = (porGrupo.find(x => x[1] === 'Transporte') || [])[2] || 0;
+  const linhaNum = (ic, rot, val, sub) => `<li><span class="ico">${ic}</span><span class="meio"><b>${rot}</b>${sub ? `<small>${sub}</small>` : ''}</span><span class="num"><b>${val}</b></span></li>`;
+  const numeros = `<div class="cartao" style="padding:6px 16px"><h2 style="margin:10px 0 2px">🧭 Números da viagem</h2><ul class="lista">
+    ${rk.n ? linhaNum('🛣️', 'Km rodados', rk.ok ? fmtNum(Math.round(rk.km)) + ' km' : '…', rk.ok ? `≈ ${fmtDur(rk.min)} dirigindo, pelo roteiro${rk.ok < rk.n ? ' (faltam trechos)' : ''}${transp && rk.km ? ' · transporte ≈ ' + brl(Math.round(transp / rk.km)) + ' por km' : ''}` : 'calculando pelo roteiro…') : ''}
+    ${dias ? linhaNum('📅', dias + (dias === 1 ? ' dia' : ' dias'), brl(Math.round(total / dias)), `por dia no grupo · ≈ ${brl(Math.round(total / dias / n))} por pessoa por dia`) : ''}
+    ${porGrupo.map(([ic, nm, val]) => linhaNum(ic, nm, brl(val), `≈ ${brl(Math.round(val / n))} por pessoa · ${Math.round(val / total * 100)}% do total`)).join('')}
+  </ul></div>`;
   const html = `
   <div class="cartao destaque" style="text-align:center">
     <div class="peq" style="opacity:.9">${esc(S.dados.viagem.nome)} · custo total</div>
@@ -1717,6 +1741,7 @@ function telaResumo() {
     <div class="peq" style="display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px">
       <span><b style="color:var(--pos)">●</b> Já pago ${brl(jaPago)}</span><span><b style="color:var(--laranja)">●</b> A pagar ${brl(aPagar)}</span><span><b style="color:var(--azul)">●</b> Cada um paga na hora ${brl(naHora)}</span></div>
   </div>
+  ${numeros}
   <div class="placar">
     <div class="cartao"><small>Dia mais caro</small><strong style="font-size:1rem">${diaTop ? fmtDia(diaTop[0]) : '—'}</strong><div class="num mut peq">${diaTop ? brl(diaTop[1]) : ''}</div></div>
     <div class="cartao"><small>Maior item</small><strong style="font-size:1rem">${esc(maior.descricao || C.CAT[maior.categoria]?.nome)}</strong><div class="num mut peq">${brl(val(maior))}</div></div>
@@ -1735,7 +1760,7 @@ function telaResumo() {
   $('#relatorio-pdf').onclick = relatorioPDF;
   $('#compartilhar-resumo').onclick = () => {
     const tr = saldoAgrupado().transf;
-    const txt = `🧳 ${S.dados.viagem.nome}\nCusto total: ${brl(total)} (≈ ${brl(Math.round(total / n))} por pessoa)\nJá pago ${brl(jaPago)} · a pagar ${brl(aPagar)} · na hora ${brl(naHora)}\n\n` +
+    const txt = `🧳 ${S.dados.viagem.nome}\nCusto total: ${brl(total)} (≈ ${brl(Math.round(total / n))} por pessoa)\n${rk.ok ? `🛣️ ${fmtNum(Math.round(rk.km))} km rodados\n` : ''}Já pago ${brl(jaPago)} · a pagar ${brl(aPagar)} · na hora ${brl(naHora)}\n\n` +
       cats.map(([c, v]) => `${(C.CAT[c] || C.CAT.outros).icone} ${(C.CAT[c] || C.CAT.outros).nome}: ${brl(v)}`).join('\n') +
       (tr.length ? `\n\n💸 Acerto:\n` + tr.map(t => `${nome(t.de)} → ${nome(t.para)}: ${brl(t.valor)}`).join('\n') : '\n\n🎉 Tudo acertado!');
     compartilhar(txt);

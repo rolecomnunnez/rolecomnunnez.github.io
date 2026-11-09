@@ -58,6 +58,33 @@ const ls = {
   del(k) { try { localStorage.removeItem(k); } catch (e) {} }
 };
 
+/* Campos de senha: abrem o teclado de números; o botão "abc" troca para o teclado completo
+   (para quem tem senha com letras). A escolha fica guardada no aparelho. */
+function tecladoSenha(inp) {
+  const tipo = ls.get('rv:teclado', 'numeric');
+  inp.inputMode = tipo;
+  if (inp.dataset.teclado) return;
+  inp.dataset.teclado = '1';
+  const casa = inp.parentNode;
+  if (getComputedStyle(casa).position === 'static') casa.style.position = 'relative';
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'tec-alt' + (casa.classList.contains('campo-ic') ? ' com-olho' : '');
+  b.textContent = tipo === 'numeric' ? 'abc' : '123';
+  b.setAttribute('aria-label', 'Trocar o teclado');
+  b.onmousedown = e => e.preventDefault(); // não tira o foco do campo
+  b.onclick = () => {
+    const novo = inp.inputMode === 'numeric' ? 'text' : 'numeric';
+    ls.set('rv:teclado', novo);
+    $$('input[type=password],input[data-teclado]').forEach(x => { x.inputMode = novo; });
+    $$('.tec-alt').forEach(x => { x.textContent = novo === 'numeric' ? 'abc' : '123'; });
+    inp.blur(); setTimeout(() => inp.focus(), 60); // o teclado só muda ao focar de novo
+  };
+  inp.insertAdjacentElement('afterend', b);
+  inp.style.paddingRight = casa.classList.contains('campo-ic') ? '92px' : '58px';
+}
+document.addEventListener('focusin', e => { const t = e.target; if (t.matches && (t.matches('input[type=password]') || t.dataset.teclado)) tecladoSenha(t); });
+new MutationObserver(() => $$('input[type=password]:not([data-teclado])').forEach(tecladoSenha)).observe(document.documentElement, { childList: true, subtree: true });
+
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg;
   // Com uma janela aberta, o aviso precisa ficar dentro dela (senão aparece atrás).

@@ -1840,9 +1840,15 @@ function telaGrupo() {
     <div class="copia">${esc(link)}</div>
     <div class="btns"><button class="btn pri" id="conv-comp">Enviar convite</button><button class="btn" id="conv-copia">Copiar link</button></div></div>
   <div class="titulo-sec">Pessoas (${S.dados.pessoas.length})</div>
+  ${leg ? '' : (() => {
+    const fora = S.dados.pessoas.filter(p => !entrouNoApp(p)), dentro = S.dados.pessoas.length - fora.length;
+    return `<div class="cartao" style="padding:12px 16px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>📲 ${dentro} de ${S.dados.pessoas.length} já ${dentro === 1 ? 'entrou' : 'entraram'} no app</b>${fora.length ? '' : '<span class="pos">🎉 todos</span>'}</div>
+      <div class="barra" style="margin-top:8px"><i style="width:${dentro / Math.max(1, S.dados.pessoas.length) * 100}%"></i></div>
+      ${fora.length ? `<p class="peq" style="margin:8px 0 0"><span class="mut">Ainda não ${fora.length === 1 ? 'entrou' : 'entraram'}:</span> <b>${fora.map(p => esc(primeiroNome(p.id))).join(', ')}</b></p>` : ''}</div>`;
+  })()}
   <div class="cartao" style="padding:4px 16px"><ul class="lista">${S.dados.pessoas.map(p => {
-    const acesso = leg ? '' : p.papel === 'organizador' ? '👑 organizador' : !p.temSenha ? '🔒 sem senha ainda' : p.trocarSenha ? 'ainda não criou a senha dele' : '';
-    const extra = [org ? acesso : (p.papel === 'organizador' ? '👑 organizador' : ''), p.chegada || p.saida ? `${p.chegada ? 'chega ' + fmtData(p.chegada) : ''}${p.chegada && p.saida ? ', ' : ''}${p.saida ? 'sai ' + fmtData(p.saida) : ''}` : '', Number(p.peso) && Number(p.peso) !== 1 ? `conta como ${fmtNum(p.peso)}` : '', ...(p.restricoes || []).map(r => (C.RESTRICOES[r] || r).split(' ').slice(1).join(' ').toLowerCase()), p.pix ? 'Pix ✓' : 'sem Pix'].filter(Boolean).join(' · ');
+    const acesso = leg ? '' : [p.papel === 'organizador' ? '👑 organizador' : '', entrouNoApp(p) ? '✅ entrou no app' : '⏳ ainda não entrou'].filter(Boolean).join(' · ');
+    const extra = [acesso,p.chegada || p.saida ? `${p.chegada ? 'chega ' + fmtData(p.chegada) : ''}${p.chegada && p.saida ? ', ' : ''}${p.saida ? 'sai ' + fmtData(p.saida) : ''}` : '', Number(p.peso) && Number(p.peso) !== 1 ? `conta como ${fmtNum(p.peso)}` : '', ...(p.restricoes || []).map(r => (C.RESTRICOES[r] || r).split(' ').slice(1).join(' ').toLowerCase()), p.pix ? 'Pix ✓' : 'sem Pix'].filter(Boolean).join(' · ');
     const pode = org || p.id === S.eu;
     return `<li class="${pode ? 'clica' : ''}" data-p="${esc(p.id)}">${avatar(p.id)}<span class="meio"><b>${esc(p.nome)}${p.id === S.eu ? ' (você)' : ''}</b><small>${esc(extra)}</small></span>${pode ? '<span class="mut">›</span>' : ''}</li>`;
   }).join('')}</ul>${org ? `<button class="btn lg sua" id="add-p" style="margin:6px 0 ${S.dados.pessoas.length > 1 ? '8px' : '12px'}">+ Adicionar pessoa</button>${S.dados.pessoas.length > 1 ? '<button class="btn lg" id="juntar-p" style="margin:0 0 12px">🔗 Juntar pessoa repetida</button>' : ''}` :'<p class="dica" style="margin:6px 0 12px">Só o organizador cadastra pessoas. Toque no seu nome para editar seus dados.</p>'}</div>
@@ -2239,6 +2245,9 @@ function formCarro(c) {
 }
 
 /* Organizador: junta uma pessoa cadastrada duas vezes (ex.: entrou pelo convite e virou outra). */
+// Já entrou no app: tem senha própria (pela conta ou criada no convite). Senha temporária do organizador não conta.
+const entrouNoApp = p => p.id === S.eu || (!!p.temSenha && !p.trocarSenha);
+
 function formJuntar() {
   const ps = S.dados.pessoas;
   const usoDe = id => {

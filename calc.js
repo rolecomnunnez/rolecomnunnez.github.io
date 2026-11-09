@@ -27,7 +27,8 @@
     noites: 'Por noites dormidas',
     carro: 'Quem estava no carro',
     escolher: 'Só quem eu escolher',
-    valores: 'Valores exatos por pessoa'
+    valores: 'Valores exatos por pessoa',
+    sozinho: 'Só meu (não divide, fica fora do acerto)'
   };
 
   const RESTRICOES = {
@@ -84,6 +85,8 @@
     const total = valorDoGasto(g);
     if (!total || !pessoas.length) return {};
     const modo = g.modo || (CAT[g.categoria] || {}).modo || 'presentes';
+    // Gasto só de quem pagou: não divide com ninguém.
+    if (modo === 'sozinho') return g.pagoPor ? { [g.pagoPor]: total } : {};
 
     if (modo === 'valores') {
       const v = g.valores || {};
@@ -141,6 +144,7 @@
     (d.pessoas || []).forEach(p => { s[p.id] = 0; pago[p.id] = 0; consumo[p.id] = 0; });
     (d.gastos || []).forEach(g => {
       if (g.modo === 'porPessoa' || g.status === 'cada_um') return; // cada um paga o seu na hora: só estimativa
+      if (g.modo === 'sozinho') return; // gasto só de quem pagou: fora do acerto
       const total = valorDoGasto(g);
       if (!total) return;
       const partes = dividir(g, d);

@@ -281,9 +281,31 @@
     return { linhas, litros, total, porPessoa: nPessoas ? Math.round(total / nPessoas) : 0 };
   }
 
+  /* ---------- Precificação (só o organizador): custo total + margem → preço de venda por vaga ----------
+     Vaga = uma pessoa paga (casal = 2). O preço por vaga é igual para todos e arredondado PARA CIMA em reais inteiros.
+     Em centavos. Custo tratado como fixo (não muda com o número de vagas). */
+  function precificar({ custo, margemTipo, margem, vagas }) {
+    const c = centavos(custo), v = Number(vagas) || 0, m = Number(String(margem == null ? '' : margem).replace(',', '.')) || 0;
+    if (!(c > 0) || !(v > 0)) return { ok: false };
+    const alvo = margemTipo === 'rs' ? c + centavos(m) : Math.round(c * (1 + m / 100));
+    const porVaga = Math.ceil(alvo / v / 100) * 100;        // reais inteiros, para cima
+    const receita = Math.round(porVaga * v);
+    const lucro = receita - c;
+    return { ok: true, custo: c, porVaga, receita, lucro, margemReal: Math.round(lucro / c * 1000) / 10, equilibrio: porVaga ? Math.ceil(c / porVaga) : 0 };
+  }
+  // O que cada um paga: preço por vaga × quantas vagas a pessoa ocupa (casal = 2).
+  const devidoPessoa = (porVaga, peso) => Math.round(porVaga * (Number(peso) > 0 ? Number(peso) : 1));
+  // Parcelas do que falta depois do sinal (a última absorve a sobra de centavos).
+  function parcelar(total, sinalPct, n) {
+    const sinal = Math.round(total * (Number(sinalPct) || 0) / 100), resto = total - sinal, k = Math.max(1, Math.floor(Number(n) || 1));
+    const base = Math.floor(resto / k), parcelas = Array.from({ length: k }, () => base);
+    parcelas[k - 1] += resto - base * k;
+    return { sinal, parcelas };
+  }
+
   const brl = c => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-  const API = { CATEGORIAS, CAT, MODOS, RESTRICOES, centavos, valorDoGasto, totalItem, jaPagoItem, dividir, saldos, partes, transferencias, pix, crc16, normalizarChave, estimativa, brl, repartir };
+  const API = { CATEGORIAS, CAT, MODOS, RESTRICOES, centavos, valorDoGasto, totalItem, jaPagoItem, dividir, saldos, partes, transferencias, pix, crc16, normalizarChave, estimativa, precificar, devidoPessoa, parcelar, brl, repartir };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else raiz.Calc = API;
 })(this);

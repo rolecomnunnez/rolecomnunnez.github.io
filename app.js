@@ -614,7 +614,8 @@ function render() {
   $('#hero-v').classList.toggle('oculto', !v.destino && !cont);
   document.title = v.nome + ' · ' + NOME;
   $$('#abas button').forEach(b => b.setAttribute('aria-current', b.dataset.aba === ABA ? 'page' : 'false'));
-  ({ gastos: telaGastos, saldos: telaAcerto, voos: telaVoos, roteiro: telaRoteiro, plano: telaRoteiro, resumo: telaResumo, grupo: telaGrupo }[ABA] || telaGastos)();
+  ({ gastos: telaGastos, saldos: telaAcerto, voos: telaVoos, roteiro: telaRoteiro, plano: telaRoteiro, resumo: telaResumo, grupo: telaGrupo, preco: telaPreco }[ABA] || telaGastos)();
+  $$('[data-preco]').forEach(b => b.onclick = () => irAba('preco'));
 }
 
 let carregandoMinhas = false, ultimaBuscaMinhas = 0;
@@ -992,6 +993,111 @@ function telaPlano() {
     novo[inp.dataset.pl] = lerNum(inp.value);
     op({ op: 'viagem', dados: { plano: novo } });
   });
+}
+
+/* ---------- Precificação: custo total + margem → preço de venda por vaga ----------
+   Só o organizador vê custo e margem (plano.precif; o Code.gs não manda para os outros).
+   Todos veem só o preço publicado (plano.venda) e o que já pagaram (plano.recebido). Vaga = pessoa paga (casal = 2). */
+const vagasDoGrupo = () => (S.dados.pessoas || []).reduce((s, p) => s + (Number(p.peso) > 0 ? Number(p.peso) : 1), 0);
+const salvarPlano = mudar => { const pl = { ...(S.dados.viagem.plano || {}) }; mudar(pl); op({ op: 'viagem', dados: { plano: pl } }); };
+
+// Cartão que cada participante vê: quanto paga, sinal, parcelas, o que já pagou e o que falta.
+function cartaoValor() {
+  const pl = S.dados.viagem.plano || {}, vd = pl.venda, eu = pessoa(S.eu);
+  if (!vd || !vd.porVaga || !eu) return '';
+  const vagas = Number(eu.peso) > 0 ? Number(eu.peso) : 1;
+  const devido = C.devidoPessoa(vd.porVaga, vagas), pg = (pl.recebido || {})[S.eu] || 0, falta = Math.max(0, devido - pg);
+  const { sinal, parcelas } = C.parcelar(devido, vd.sinalPct, vd.parcelas);
+  const resto = parcelas.reduce((s, x) => s + x, 0);
+  return `<div class="cartao"><h2>💳 Valor da viagem</h2>
+    <div style="font-size:1.7rem;font-weight:800" class="num">${brl(devido)}</div>
+    <p class="mut peq" style="margin:0 0 8px">${vagas === 1 ? 'Valor por pessoa' : `${fmtNum(vagas)} vagas × ${brl(vd.porVaga)}`}</p>
+    ${Number(vd.sinalPct) > 0 ? `<p style="margin:4px 0">Sinal de ${fmtNum(vd.sinalPct)}% (garante a vaga): <b class="num">${brl(sinal)}</b></p>` : ''}
+    ${resto > 0 ? `<p style="margin:4px 0">${Number(vd.sinalPct) > 0 ? 'Depois' : 'Em'} ${parcelas.length}× de <b class="num">${brl(parcelas[0])}</b>${parcelas.length > 1 && parcelas[parcelas.length - 1] !== parcelas[0] ? ` (a última de ${brl(parcelas[parcelas.length - 1])})` : ''}</p>` : ''}
+    <p style="margin:8px 0 0">Já pago: <b class="num pos">${brl(pg)}</b> · Falta: <b class="num ${falta ? 'neg' : 'pos'}">${falta ? brl(falta) : 'tudo pago 🎉'}</b></p></div>`;
+}
+
+function telaPreco() {
+  if (!souOrg()) { $('#tela').innerHTML = '<div class="cartao vazio"><b>🔒</b>Só o organizador vê a precificação.</div>'; return; }
+  const pl = S.dados.viagem.plano || {}, pr = pl.precif || {}, vd = pl.venda || null, rec = pl.recebido || {};
+  const auto = vagasDoGrupo(), vagas = Number(pr.vagas) > 0 ? Number(pr.vagas) : auto;
+  const tipo = pr.margemTipo === 'rs' ? 'rs' : 'pct';
+  const r = C.precificar({ custo: pr.custo, margemTipo: tipo, margem: pr.margem, vagas });
+  let html = `<button class="btn" data-volta-grupo style="margin-bottom:10px">‹ Voltar para o grupo</button>
+  <div class="cartao"><h2>💰 Precificação <span class="mut peq">só você vê</span></h2>
+    <p class="mut peq" style="margin-top:-4px">Coloque o custo total da viagem e a margem que quer ganhar. O app calcula o preço por pessoa. Os participantes veem só o preço, nunca o custo nem a margem.</p>
+    <label class="cp"><span>Custo total da viagem (R$)</span><input type="text" inputmode="decimal" data-pr="custo" value="${esc(fmtNum(pr.custo))}" placeholder="Tudo o que você paga aos fornecedores"></label>
+    <div class="grade2">
+      <label class="cp"><span>Margem de lucro</span><select data-pr="margemTipo"><option value="pct" ${tipo === 'pct' ? 'selected' : ''}>% sobre o custo</option><option value="rs" ${tipo === 'rs' ? 'selected' : ''}>R$ fixo</option></select></label>
+      <label class="cp"><span>${tipo === 'rs' ? 'Lucro desejado (R$)' : 'Margem (%)'}</span><input type="text" inputmode="decimal" data-pr="margem" value="${esc(fmtNum(pr.margem))}"></label>
+    </div>
+    <label class="cp"><span>Vagas a vender (casal = 2)</span><input type="text" inputmode="decimal" data-pr="vagas" value="${esc(fmtNum(pr.vagas))}" placeholder="${esc(fmtNum(auto))} (pelo grupo)"></label>
+    <div class="grade2">
+      <label class="cp"><span>Sinal (%)</span><input type="text" inputmode="decimal" data-pr="sinalPct" value="${esc(fmtNum(pr.sinalPct))}" placeholder="Ex.: 30"></label>
+      <label class="cp"><span>Parcelas do restante</span><input type="text" inputmode="numeric" data-pr="parcelas" value="${esc(fmtNum(pr.parcelas))}" placeholder="Ex.: 3"></label>
+    </div>
+    <p class="dica" style="margin-bottom:0">Pessoas já cadastradas: ${esc(fmtNum(auto))} ${auto === 1 ? 'vaga' : 'vagas'}. O preço por pessoa é igual para todos e arredondado para cima em reais inteiros. Criança que não vai não entra na conta.</p>
+  </div>`;
+  if (!r.ok) {
+    html += `<div class="cartao vazio"><b>🧮</b>Informe o custo total e as vagas para ver o preço de venda.</div>`;
+  } else {
+    const ks = [...new Set([vagas - 2, vagas - 1, vagas, vagas + 1, vagas + 2, vagas + 3].map(x => Math.round(x * 2) / 2))].filter(x => x >= 1);
+    const lin = ks.map(k => { const x = C.precificar({ custo: pr.custo, margemTipo: tipo, margem: pr.margem, vagas: k }); const lucroFixo = r.porVaga * k - r.custo;
+      return `<tr${k === vagas ? ' style="font-weight:700"' : ''}><td>${fmtNum(k)}</td><td class="num">${brl(x.porVaga)}</td><td class="num ${lucroFixo < 0 ? 'neg' : 'pos'}">${brl(lucroFixo)}</td></tr>`; }).join('');
+    const mudou = vd && vd.porVaga !== r.porVaga;
+    html += `<div class="cartao destaque">
+      <div class="peq">Preço de venda por pessoa</div>
+      <div style="font-size:2rem;font-weight:800" class="num">${brl(r.porVaga)}</div>
+      <div class="peq">${fmtNum(vagas)} ${vagas === 1 ? 'vaga' : 'vagas'} · entra ${brl(r.receita)} · custo ${brl(r.custo)}</div></div>
+    <div class="placar">
+      <div class="cartao"><small>Seu lucro</small><strong class="num ${r.lucro < 0 ? 'neg' : 'pos'}">${brl(r.lucro)}</strong></div>
+      <div class="cartao"><small>Margem real</small><strong class="num">${fmtNum(r.margemReal)}%</strong></div>
+    </div>
+    <div class="cartao"><small>Ponto de equilíbrio</small><div><b>${r.equilibrio}</b> ${r.equilibrio === 1 ? 'vaga cobre' : 'vagas cobrem'} o custo neste preço.</div></div>
+    <div class="cartao"><h2>E se vender menos ou mais vagas?</h2>
+      <p class="mut peq" style="margin-top:-4px">Preço para manter a margem × lucro se mantiver o preço de ${brl(r.porVaga)}.</p>
+      <table style="width:100%;border-collapse:collapse"><thead><tr class="mut peq" style="text-align:left"><th>Vagas</th><th>Preço p/ manter margem</th><th>Lucro no preço atual</th></tr></thead><tbody>${lin}</tbody></table></div>
+    <div class="cartao"><h2>📢 Preço para o grupo</h2>
+      ${vd && vd.porVaga ? `<p style="margin:0 0 8px">Publicado: <b class="num">${brl(vd.porVaga)}</b> por pessoa${mudou ? ` <span class="neg">· o cálculo agora dá ${brl(r.porVaga)}</span>` : ''}</p>` : '<p class="mut peq" style="margin-top:-4px">Ainda não publicado: ninguém do grupo vê preço.</p>'}
+      <div class="btns"><button class="btn pri" id="pr-pub">${vd && vd.porVaga ? 'Atualizar preço publicado' : 'Publicar preço'}</button>${vd && vd.porVaga ? '<button class="btn" id="pr-des">Tirar do ar</button>' : ''}</div></div>`;
+  }
+  if (vd && vd.porVaga) {
+    const ps = S.dados.pessoas || [];
+    const dev = p => C.devidoPessoa(vd.porVaga, p.peso), totalDev = ps.reduce((s, p) => s + dev(p), 0), totalRec = ps.reduce((s, p) => s + (rec[p.id] || 0), 0);
+    html += `<div class="titulo-sec">Recebimentos</div><div class="cartao" style="padding:4px 16px">
+      <p class="mut peq" style="margin:10px 0 0">Recebido ${brl(totalRec)} de ${brl(totalDev)}${totalDev > totalRec ? ` · falta ${brl(totalDev - totalRec)}` : ''}</p>
+      <ul class="lista">${ps.map(p => { const d = dev(p), g = rec[p.id] || 0;
+        return `<li class="clica" data-rec="${esc(p.id)}">${avatar(p.id)}<span class="meio"><b>${esc(p.nome)}</b><small>${fmtNum(Number(p.peso) > 0 ? Number(p.peso) : 1)} ${Number(p.peso) === 1 || !(Number(p.peso) > 0) ? 'vaga' : 'vagas'} · deve ${brl(d)} · pagou ${brl(g)}</small></span><span class="${g >= d ? 'pos' : 'neg'}">${g >= d ? '✅' : brl(d - g)}</span></li>`; }).join('')}</ul></div>`;
+  }
+  $('#tela').innerHTML = html;
+  $$('[data-pr]').forEach(inp => inp.onchange = () => {
+    const k = inp.dataset.pr, val = k === 'margemTipo' ? inp.value : lerNum(inp.value);
+    salvarPlano(p => { p.precif = { ...(p.precif || {}), [k]: val }; });
+  });
+  $('[data-volta-grupo]').onclick = () => irAba('grupo');
+  if ($('#pr-pub')) $('#pr-pub').onclick = () => {
+    salvarPlano(p => { p.venda = { porVaga: r.porVaga, sinalPct: Number(pr.sinalPct) || 0, parcelas: Math.max(1, Math.floor(Number(pr.parcelas) || 1)), em: hoje() }; });
+    toast('Preço publicado ✓ Todos já veem o valor deles.');
+  };
+  if ($('#pr-des')) $('#pr-des').onclick = () => { salvarPlano(p => { delete p.venda; }); toast('Preço tirado do ar.'); };
+  $$('li[data-rec]').forEach(li => li.onclick = () => formRecebido(li.dataset.rec));
+}
+
+function formRecebido(pid) {
+  const p = pessoa(pid), pl = S.dados.viagem.plano || {}, vd = pl.venda || {}, g = (pl.recebido || {})[pid] || 0;
+  const dev = C.devidoPessoa(vd.porVaga || 0, p.peso);
+  const f = janela('Recebimento · ' + esc(p.nome), `
+    <p class="mut" style="margin-top:0">Deve ${brl(dev)} · já recebido ${brl(g)}.</p>
+    <label class="cp"><span>Total já recebido de ${esc(p.nome.split(' ')[0])} (R$)</span><input type="text" inputmode="decimal" name="valor" value="${esc(fmtNum(g / 100))}" required></label>
+    <p class="dica">Coloque o total que a pessoa já te pagou (sinal + parcelas), não só o último pagamento.</p>`,
+    `<button class="btn" value="x" formnovalidate>Cancelar</button><button class="btn pri" value="ok">Salvar</button>`);
+  f.onsubmit = e => {
+    if (!e.submitter || e.submitter.value !== 'ok') return;
+    const v = lerNum(new FormData(f).get('valor'));
+    if (v === '' || !(v >= 0)) { e.preventDefault(); return toast('Informe o valor.'); }
+    salvarPlano(x => { x.recebido = { ...(x.recebido || {}), [pid]: C.centavos(v) }; });
+    toast('Recebimento salvo ✓');
+  };
 }
 
 /* ---------- Voos: passagens de cada um ---------- */
@@ -1487,6 +1593,7 @@ function telaRoteiro() {
     <div style="font-size:1.9rem;font-weight:800" class="num">${S.eu ? brl(meuTotal) : brl(totalRot)}</div>
     <div class="peq">${itens.length} ${itens.length === 1 ? 'item' : 'itens'} no roteiro · ${brl(totalRot)} no total${aPagar.length ? ` · ${aPagar.length} a pagar` : ''}</div>
   </div>`;
+  html += cartaoValor();
   const zapRot = (S.dados.viagem.plano || {}).whatsapp;
   if (zapRot) html += `<a class="btn lg" href="${esc(zapRot)}" target="_blank" rel="noopener" style="background:#25d366;border-color:#25d366;color:#fff;margin-bottom:10px">💬 Grupo do WhatsApp</a>`;
   if (itens.length) html += `<button class="btn lg" id="agenda" style="margin-bottom:10px">📅 Colocar o roteiro na agenda do celular</button>`;
@@ -1832,6 +1939,8 @@ function telaGrupo() {
   const org = souOrg(), leg = legado();
   const zap = (v.plano || {}).whatsapp || '';
   let html = `${zap ? `<a class="btn lg" href="${esc(zap)}" target="_blank" rel="noopener" style="background:#25d366;border-color:#25d366;color:#fff;margin-bottom:14px">💬 Entrar no grupo do WhatsApp</a>` : ''}
+  ${cartaoValor()}
+  ${org ? `<button class="btn lg" data-preco style="margin-bottom:14px">💰 Precificação (custo, margem e preço de venda)</button>` : ''}
   ${org ? `<div class="cartao"><h2>💬 Grupo do WhatsApp</h2>
     <label class="cp" style="margin:0"><span>Cole o link de convite do grupo</span><input type="text" inputmode="url" id="v-zap" value="${esc(zap)}" placeholder="https://chat.whatsapp.com/…" autocapitalize="off"></label>
     <p class="dica" style="margin:6px 0 0">No WhatsApp: abra o grupo › toque no nome › <b>Convidar via link</b> › Copiar link. Para todos aparece o botão "Entrar no grupo do WhatsApp".</p></div>` : ''}

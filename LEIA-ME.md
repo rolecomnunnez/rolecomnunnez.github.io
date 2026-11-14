@@ -28,6 +28,7 @@ Funciona no celular como app (PWA), inclusive sem internet: os gastos ficam guar
 - **Relatório final:** Resumo > "Relatório da viagem (PDF)" abre a página pronta para imprimir ou salvar em PDF.
 - **Cupom repetido:** ao anexar a foto, o app lê o QR Code da NFC-e (chave de 44 números, única por cupom) e avisa se o cupom já foi lançado. Sem QR legível, avisa se é exatamente a mesma foto. Também avisa gasto com mesmo valor e mesma data (ou dia vizinho).
 - **Voos:** cada um informa de onde sai, abre o Google Voos já com a busca pronta e registra a passagem (companhia, voo, horários). O organizador confirma. Lista de chegadas para combinar quem busca quem.
+- **Precificação (só o organizador):** Grupo › "💰 Precificação". Informe o custo total e a margem (% ou R$) e o app calcula o preço por pessoa (igual para todos, casal = 2 vagas), lucro, ponto de equilíbrio e cenários com mais ou menos vagas. "Publicar preço" mostra aos participantes só o valor deles, o sinal e as parcelas (cartão "Valor da viagem" no Roteiro e no Grupo). Custo e margem ficam só com os organizadores (o Code.gs não os envia aos outros). O organizador registra o que cada um já pagou. Depois de mudar o Code.gs, faça **Nova versão** da implantação.
 - **E-mails automáticos:** o organizador recebe aviso quando alguém registra a passagem; quem ainda não comprou recebe lembrete toda segunda e a 60, 45, 30, 21, 14, 7 e 3 dias da viagem.
 
 ## Arquivos

@@ -856,8 +856,8 @@ function secaoPacote(eu, meusIds, parteDe) {
   }
   const linhas = itens.map(g => {
     const cat = C.CAT[g.categoria] || C.CAT.outros, fora = foraPacote(g) || cadaUm(g);
-    return `<li><span class="ico">${cat.icone}</span><span class="meio"><b>${esc(g.descricao)}</b><small>${cadaUm(g) ? 'pague na hora' : foraPacote(g) ? esc(quando(g)) : esc(quando(g)) + ' · pagamento em grupo'}</small></span><span class="num"><b>${brl(valIt.get(g))}</b></span></li>`;
-  }).join('') + (rateio > 0 ? `<li><span class="ico">🤝</span><span class="meio"><b>Organização e taxas da viagem</b><small>coordenação, reservas e arredondamento</small></span><span class="num"><b>${brl(rateio)}</b></span></li>` : '');
+    return `<li><span class="ico">${cat.icone}</span><span class="meio"><b>${esc(g.descricao)}</b><small>${cadaUm(g) ? 'pague na hora' : foraPacote(g) ? esc(quando(g)) : esc(quando(g)) + ' · pagamento em grupo'}</small></span><span class="num"><b>${comoGrupo() && !fora ? '' : brl(valIt.get(g))}</b></span></li>`;
+  }).join('') + (rateio > 0 && !comoGrupo() ?`<li><span class="ico">🤝</span><span class="meio"><b>Organização e taxas da viagem</b><small>coordenação, reservas e arredondamento</small></span><span class="num"><b>${brl(rateio)}</b></span></li>` : '');
   return `<div class="titulo-sec">🗺️ Sua parte no roteiro</div><div class="cartao" style="padding:4px 16px">${linhas ? `<ul class="lista">${linhas}</ul>` : '<p class="mut peq">Nenhum item do roteiro marcado com você ainda.</p>'}
     <div class="peq" style="display:flex;justify-content:space-between;border-top:1px solid var(--lin);padding:10px 0;font-weight:700"><span>Valor da viagem</span><span class="num">${brl(devido)}</span></div>
     <div class="peq" style="display:flex;justify-content:space-between;padding:0 0 10px"><span>Já pago</span><span class="num pos">${brl(pg)}</span></div>

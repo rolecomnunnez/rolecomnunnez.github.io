@@ -1046,7 +1046,7 @@ function telaPreco() {
       <label class="cp"><span>Sinal (%)</span><input type="text" inputmode="decimal" data-pr="sinalPct" value="${esc(fmtNum(pr.sinalPct))}" placeholder="Ex.: 30"></label>
       <label class="cp"><span>Parcelas do restante</span><input type="text" inputmode="numeric" data-pr="parcelas" value="${esc(fmtNum(pr.parcelas))}" placeholder="Ex.: 3"></label>
     </div>
-    <p class="dica" style="margin-bottom:0">Pessoas já cadastradas: ${esc(fmtNum(auto))} ${auto === 1 ? 'vaga' : 'vagas'}. O preço por pessoa é igual para todos e arredondado para cima em reais inteiros. Criança que não vai não entra na conta.</p>
+    <p class="dica" style="margin-bottom:0">Pessoas já cadastradas: ${esc(fmtNum(auto))} ${auto === 1 ? 'vaga' : 'vagas'}. O preço por pessoa é igual para todos e arredondado para cima em múltiplos de R$ 5. Os valores dos itens para o grupo vão para o múltiplo de R$ 5 mais próximo. Criança que não vai não entra na conta.</p>
   </div>`;
   if (!r.ok) {
     html += `<div class="cartao vazio"><b>🧮</b>Informe o custo total e as vagas para ver o preço de venda.</div>`;

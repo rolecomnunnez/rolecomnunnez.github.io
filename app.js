@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v56'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v57'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -821,7 +821,7 @@ function secaoPacote(eu, meusIds, parteDe) {
   const euOrg = souOrg();
   const linhas = itens.map(g => {
     const cat = C.CAT[g.categoria] || C.CAT.outros, fora = foraPacote(g) || cadaUm(g);
-    return `<li><span class="ico">${cat.icone}</span><span class="meio"><b>${esc(g.descricao)}</b><small>${fora ? (foraPacote(g) && !cadaUm(g) ? 'fora do pacote · pague no local' : 'pague na hora') : esc(quando(g))}</small></span><span class="num"><b>${brl(vit(g, parteDe(g)))}</b></span></li>`;
+    return `<li><span class="ico">${cat.icone}</span><span class="meio"><b>${esc(g.descricao)}</b><small>${cadaUm(g) ? 'pague na hora' : foraPacote(g) ? esc(quando(g)) : esc(quando(g)) + ' · pagamento em grupo'}</small></span><span class="num"><b>${brl(vit(g, parteDe(g)))}</b></span></li>`;
   }).join('');
   return `<div class="titulo-sec">🗺️ Sua parte no roteiro</div><div class="cartao" style="padding:4px 16px">${linhas ? `<ul class="lista">${linhas}</ul>` : '<p class="mut peq">Nenhum item do roteiro marcado com você ainda.</p>'}
     <div class="peq" style="display:flex;justify-content:space-between;border-top:1px solid var(--lin);padding:10px 0;font-weight:700"><span>Valor da viagem</span><span class="num">${brl(devido)}</span></div>

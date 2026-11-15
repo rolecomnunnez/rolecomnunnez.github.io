@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v55'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v56'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -1107,10 +1107,20 @@ function valorCobranca(c, pid) {
   const peso = Number(p.peso) > 0 ? Number(p.peso) : 1, n = Number(c.valor) || 0;
   const gs = itensDaCobranca(c).map(i => (S.dados.gastos || []).find(x => x.id === i)).filter(Boolean);
   const comItens = itensDaCobranca(c).length > 0, parte = gs.reduce((s, g) => s + parteVenda(g, pid), 0);
-  if (c.tipo === 'rs') return (comItens && !parte) ? 0 : C.centavos(n) * peso; // com itens: só para quem vai em algum deles (cobrado uma vez)
   if (isento(pid)) return 0;
-  const base = comItens ? parte : devidoDe(pid);
-  return Math.ceil(base * n / 100 / 500) * 500; // múltiplo de R$ 5, para cima
+  if (c.tipo === 'rs') return (comItens && !parte) ? 0 : C.centavos(n) * peso; // com itens: só para quem vai em algum deles (cobrado uma vez)
+  if (comItens) {
+    // % do que o LOCAL pede (preço real, sem a margem), dividido entre quem paga o pacote:
+    // o total pedido é o % do valor de todos que vão (inclusive quem não paga); a parte de quem não paga é repartida entre os pagantes.
+    const pagantes = (S.dados.pessoas || []).filter(x => !isento(x.id)).map(x => x.id);
+    let tot = 0;
+    gs.filter(g => !cadaUm(g) && !foraPacote(g)).forEach(g => {
+      const d = C.dividir(g, S.dados), W = pagantes.reduce((s, id) => s + (d[id] || 0), 0);
+      if (W > 0 && d[pid]) tot += C.totalItem(g, S.dados) * (d[pid] / W);
+    });
+    return Math.ceil(tot * n / 100 / 500) * 500; // múltiplo de R$ 5, para cima
+  }
+  return Math.ceil(devidoDe(pid) * n / 100 / 500) * 500; // sem itens: % do valor da viagem da pessoa
 }
 // Agenda de quem paga por "ids" (a pessoa e quem ela cobre): cada cobrança com valor, quanto já foi pago e se está atrasada.
 function agendaDe(ids) {
@@ -1138,7 +1148,7 @@ function htmlAgenda(ag) {
 }
 const regraCobranca = c => {
   const nm = nomesItens(c);
-  return (c.tipo === 'rs' ? `R$ ${fmtNum(c.valor)} por vaga` : `${fmtNum(c.valor)}% ${nm.length ? 'da parte de cada um' : 'do valor da viagem'}`) + (nm.length ? ' · para: ' + nm.join(' + ') : '');
+  return (c.tipo === 'rs' ? `R$ ${fmtNum(c.valor)} por vaga` : `${fmtNum(c.valor)}% ${nm.length ? 'do preço do local, entre os pagantes' : 'do valor da viagem'}`) + (nm.length ? ' · para: ' + nm.join(' + ') : '');
 };
 
 function formCobranca(c) {
@@ -1163,7 +1173,7 @@ function formCobranca(c) {
     const rs = f.tipo.value === 'rs', n = f.querySelectorAll('[name=itens]:checked').length, tem = n > 0, varios = n > 1;
     $('#cob-rot', f).textContent = rs ? 'Valor por vaga (R$)' : 'Percentual (%)';
     $('#cob-dica', f).textContent = rs ? (tem ? 'Valor fixo por vaga (uma vez só), para quem vai em algum dos itens marcados.' : 'Valor fixo por vaga para todos.')
-      : (tem ? `Cada pessoa paga esse % da soma da parte dela ${varios ? 'nesses itens' : 'nesse item'}.` : 'Cada pessoa paga esse % do valor da viagem dela.');
+      : (tem ? `Esse % é do preço que o local pede (sem a sua margem) ${varios ? 'nesses itens' : 'nesse item'}, dividido entre quem paga o pacote. Quem não vai em um item não paga por ele.` : 'Cada pessoa paga esse % do valor da viagem dela.');
   };
   f.tipo.onchange = ajustaCob; f.querySelectorAll('[name=itens]').forEach(x => x.onchange = ajustaCob); ajustaCob();
   f.onsubmit = e => {

@@ -783,6 +783,25 @@ function saldoAgrupado() {
 }
 const cobre = id => S.dados.pessoas.filter(p => p.id !== id && responsavel(p.id) === id); // quem esta pessoa cobre
 
+// Acerto com preço publicado: itens do roteiro (com a margem dentro, para o grupo), valor da viagem, já pago e falta + Pix para o organizador.
+function secaoPacote(eu, meusIds, parteDe) {
+  const pl = S.dados.viagem.plano || {}, vd = pl.venda, rec = pl.recebido || {};
+  const itens = itensRoteiro().filter(g => parteDe(g));
+  const devido = meusIds.reduce((s, id) => s + C.devidoPessoa(vd.porVaga, (pessoa(id) || {}).peso), 0);
+  const pg = meusIds.reduce((s, id) => s + (rec[id] || 0), 0), falta = Math.max(0, devido - pg);
+  const orgP = (S.dados.pessoas || []).find(p => p.papel === 'organizador');
+  const euOrg = souOrg();
+  const linhas = itens.map(g => {
+    const cat = C.CAT[g.categoria] || C.CAT.outros, fora = foraPacote(g) || cadaUm(g);
+    return `<li><span class="ico">${cat.icone}</span><span class="meio"><b>${esc(g.descricao)}</b><small>${fora ? (foraPacote(g) && !cadaUm(g) ? 'fora do pacote · pague no local' : 'pague na hora') : 'incluso no pacote'}</small></span><span class="num"><b>${brl(vit(g, parteDe(g)))}</b></span></li>`;
+  }).join('');
+  return `<div class="titulo-sec">🗺️ Sua parte no roteiro</div><div class="cartao" style="padding:4px 16px">${linhas ? `<ul class="lista">${linhas}</ul>` : '<p class="mut peq">Nenhum item do roteiro marcado com você ainda.</p>'}
+    <div class="peq" style="display:flex;justify-content:space-between;border-top:1px solid var(--lin);padding:10px 0;font-weight:700"><span>Valor da viagem</span><span class="num">${brl(devido)}</span></div>
+    <div class="peq" style="display:flex;justify-content:space-between;padding:0 0 10px"><span>Já pago</span><span class="num pos">${brl(pg)}</span></div>
+    <div class="peq" style="display:flex;justify-content:space-between;padding:0 0 10px"><span>Falta</span><span class="num ${falta ? 'neg' : 'pos'}">${falta ? brl(falta) : 'tudo pago 🎉'}</span></div>
+    ${falta && !euOrg && orgP && orgP.id !== eu ? `<button class="btn pri lg" id="pg-pacote" data-falta="${falta}" data-para="${esc(orgP.id)}" style="margin-bottom:12px">Pagar ${brl(falta)} com Pix</button>` : ''}</div>`;
+}
+
 /* Aba Acerto: cada um vê só o que é seu. A situação de todo mundo fica no Resumo. */
 function telaAcerto() {
   if (!S.eu) return telaSaldos(); // viagem antiga sem login: mostra tudo
@@ -795,7 +814,9 @@ function telaAcerto() {
   if (resp !== eu) html += `<div class="aviso" style="background:var(--suave);color:var(--tx)">💑 Sua conta é acertada por <b>${esc(nome(resp))}</b>. O que você deve ou tem a receber está somado na conta dele(a).</div>`;
   // 1) roteiro: a parte de cada um em cada item
   const parteDe = g => { const d = C.dividir(g, S.dados); return meusIds.reduce((s, id) => s + (d[id] || 0), 0); }; // eu + quem eu cubro
-  const itens = itensRoteiro().filter(g => naConta(g) && parteDe(g));
+  // Com o preço publicado, a parte do roteiro vira o "pacote": cada item com o valor do grupo (margem dentro) e o total que a pessoa paga ao organizador.
+  if (vendaPublicada()) html += secaoPacote(eu, meusIds, parteDe);
+  const itens = vendaPublicada() ? [] : itensRoteiro().filter(g => naConta(g) && parteDe(g));
   if (itens.length) {
     let totalParte = 0, totalPend = 0;
     html += `<div class="titulo-sec">🗺️ Sua parte no roteiro${cobre(eu).length ? ' (com ' + cobre(eu).map(p => esc(primeiroNome(p.id))).join(', ') + ')' : ''}</div><div class="cartao" style="padding:4px 16px"><ul class="lista">${itens.map(g => {
@@ -863,6 +884,7 @@ function telaAcerto() {
   $$('[data-cobrarm]').forEach(b => b.onclick = () => cobrarWhats(minhas[b.dataset.cobrarm]));
   $$('[data-cobrart]').forEach(b => b.onclick = () => cobrarWhats(ag.transf[b.dataset.cobrart]));
   $$('[data-pagot]').forEach(b => b.onclick = () => formJaPaguei(ag.transf[b.dataset.pagot], 'org'));
+  if ($('#pg-pacote')) $('#pg-pacote').onclick = e => janelaPix({ de: S.eu, para: e.currentTarget.dataset.para, valor: Number(e.currentTarget.dataset.falta) });
   $$('[data-pagitem]').forEach(b => b.onclick = () => pagarItem(S.dados.gastos.find(g => g.id === b.dataset.pagitem), Number(b.dataset.falta)));
   $$('[data-pagom]').forEach(b => b.onclick = () => { const t = minhas[b.dataset.pagom]; formJaPaguei(t, t.de === resp ? 'paguei' : 'recebi'); });
   $$('[data-recebi]').forEach(b => b.onclick = () => { const a = S.dados.acertos.find(x => x.id === b.dataset.recebi); op({ op: 'salvar', tipo: 'acerto', item: { ...a, status: 'confirmado', confirmadoPor: S.eu } }); toast('Recebimento confirmado ✓'); });
@@ -1862,16 +1884,20 @@ function formRoteiro(g) {
 }
 
 function telaResumo() {
-  const gs = (S.dados.gastos || []).filter(g => naConta(g) && pago(g));
+  const gs = (S.dados.gastos || []).filter(pago);
   // Tudo o que foi lançado: gastos pagos + roteiro a pagar + o que cada um paga na hora.
-  const todos = (S.dados.gastos || []).filter(g => naConta(g) && !soMeu(g) && C.totalItem(g, S.dados) > 0);
-  const val = g => C.totalItem(g, S.dados);
+  // Com o preço publicado, o grupo vê os itens do pacote com a margem dentro (vit); "fora do pacote" e "pago na hora" ficam reais.
+  const todos = (S.dados.gastos || []).filter(g => !soMeu(g) && C.totalItem(g, S.dados) > 0);
+  const val = g => vit(g, C.totalItem(g, S.dados));
   const total = todos.reduce((s, g) => s + val(g), 0);
   if (!total) { $('#tela').innerHTML = `<div class="cartao vazio"><b>📊</b>O resumo aparece assim que houver algo com valor no roteiro ou nos gastos.</div>`; return; }
-  const jaPago = todos.reduce((s, g) => s + C.jaPagoItem(g, S.dados), 0);
-  const aPagar = todos.filter(g => g.status === 'previsto').reduce((s, g) => s + val(g) - C.jaPagoItem(g, S.dados), 0);
-  const naHora = todos.filter(cadaUm).reduce((s, g) => s + val(g), 0);
-  const sal = C.saldos(S.dados), partes = C.partes(S.dados);
+  const jaPagoV = g => vit(g, C.jaPagoItem(g, S.dados));
+  const jaPago = todos.filter(g => !foraPacote(g)).reduce((s, g) => s + jaPagoV(g), 0);
+  const aPagar = todos.filter(g => g.status === 'previsto' && !foraPacote(g)).reduce((s, g) => s + val(g) - jaPagoV(g), 0);
+  const naHora = todos.filter(g => cadaUm(g) || foraPacote(g)).reduce((s, g) => s + val(g), 0);
+  const sal = C.saldos(S.dados), partes = {};
+  S.dados.pessoas.forEach(p => { partes[p.id] = 0; });
+  todos.forEach(g => { const ps = C.dividir(g, S.dados); Object.keys(ps).forEach(k => { if (k in partes) partes[k] += vit(g, ps[k]); }); });
   const porCat = {}, porDia = {};
   todos.forEach(g => { const v = val(g); porCat[g.categoria] = (porCat[g.categoria] || 0) + v; if (g.data) porDia[g.data] = (porDia[g.data] || 0) + v; });
   const cats = Object.entries(porCat).filter(c => c[1] > 0).sort((a, b) => b[1] - a[1]);

@@ -1726,9 +1726,11 @@ function trechosRoteiro() {
   const pts = itens.map(g => ({ g, chave: g.id, data: g.data, hora: g.hora || HORA_PADRAO[g.categoria] || '12:00', local: g.local, tipo: g.categoria }));
   // devolução do carro alugado (no mesmo lugar da retirada)
   itens.filter(g => g.categoria === 'aluguel' && g.ate).forEach(g => pts.push({ g, chave: 'dev-' + g.id, data: g.ate, hora: HORA_PADRAO.devolucao, local: g.local, tipo: 'devolucao' }));
-  pts.sort((a, b) => a.data.localeCompare(b.data) || a.hora.localeCompare(b.hora));
-  // passeio num dia em que a turma está hospedada em algum lugar: sai e volta da hospedagem
-  const hospEm = (d, exceto) => itens.find(h => h.categoria === 'hospedagem' && h !== exceto && h.data <= d && (h.ate ? d < h.ate : d === h.data));
+  // Na mesma data e hora, o check-in vem depois dos passeios (a turma só chega à hospedagem depois do dia de passeio).
+  pts.sort((a, b) => a.data.localeCompare(b.data) || a.hora.localeCompare(b.hora) || (a.tipo === 'hospedagem') - (b.tipo === 'hospedagem'));
+  // passeio num dia em que a turma está hospedada em algum lugar: sai e volta da hospedagem.
+  // No dia do check-in a turma ainda está chegando (vem de outro lugar), então esse dia não conta como "saindo da hospedagem": o trajeto segue em cadeia.
+  const hospEm = (d, exceto) => itens.find(h => h.categoria === 'hospedagem' && h !== exceto && h.data < d && (h.ate ? d < h.ate : false));
   const out = []; let atual = null;
   pts.forEach(p => {
     const hosp = ['passeios', 'trilhas', 'eventos', 'alimentacao', 'outros'].includes(p.tipo) ? hospEm(p.data, p.g) : null;

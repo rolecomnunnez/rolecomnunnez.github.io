@@ -857,7 +857,7 @@ function secaoPacote(eu, meusIds, parteDe) {
   const linhas = itens.map(g => {
     const cat = C.CAT[g.categoria] || C.CAT.outros, fora = foraPacote(g) || cadaUm(g);
     return `<li><span class="ico">${cat.icone}</span><span class="meio"><b>${esc(g.descricao)}</b><small>${cadaUm(g) ? 'pague na hora' : foraPacote(g) ? esc(quando(g)) : esc(quando(g)) + ' · pagamento em grupo'}</small></span><span class="num"><b>${brl(valIt.get(g))}</b></span></li>`;
-  }).join('') + (rateio > 0 ? `<li><span class="ico">🤝</span><span class="meio"><b>Parte de quem não paga + arredondamento</b><small>dividida entre quem paga a viagem</small></span><span class="num"><b>${brl(rateio)}</b></span></li>` : '');
+  }).join('') + (rateio > 0 ? `<li><span class="ico">🤝</span><span class="meio"><b>Organização e taxas da viagem</b><small>coordenação, reservas e arredondamento</small></span><span class="num"><b>${brl(rateio)}</b></span></li>` : '');
   return `<div class="titulo-sec">🗺️ Sua parte no roteiro</div><div class="cartao" style="padding:4px 16px">${linhas ? `<ul class="lista">${linhas}</ul>` : '<p class="mut peq">Nenhum item do roteiro marcado com você ainda.</p>'}
     <div class="peq" style="display:flex;justify-content:space-between;border-top:1px solid var(--lin);padding:10px 0;font-weight:700"><span>Valor da viagem</span><span class="num">${brl(devido)}</span></div>
     <div class="peq" style="display:flex;justify-content:space-between;padding:0 0 10px"><span>Já pago</span><span class="num pos">${brl(pg)}</span></div>
@@ -2352,7 +2352,7 @@ function telaResumo() {
     <div class="peq" style="opacity:.9">${esc(S.dados.viagem.nome)} · ${vendaPublicada() ? 'total do roteiro' : 'custo total'}</div>
     <div style="font-size:2.1rem;font-weight:800" class="num">${brl(total)}</div>
     <div class="peq" style="opacity:.9">${todos.length} lançamentos · ${S.dados.pessoas.length} pessoas · ${vendaPublicada() ? `valor da viagem <b>${brl(((S.dados.viagem.plano || {}).venda || {}).porVaga)}</b> por pessoa` : `≈ ${brl(Math.round(total / n))} por pessoa`}</div>
-    ${vendaPublicada() ? `<div class="peq" style="opacity:.75">Total ${brl(total)}${naHora ? ` − ${brl(naHora)} que cada um paga na hora/fora do pacote` : ''} = pacote ${brl(total - naHora)} ÷ ${fmtNum(vagasDoGrupo())} ${vagasDoGrupo() === 1 ? 'vaga' : 'vagas'} ≈ ${brl(Math.round((total - naHora) / Math.max(1, vagasDoGrupo())))} (o valor da viagem é arredondado para cima em múltiplos de R$ 5)</div>` : ''}
+    ${vendaPublicada() && souOrg() ? `<div class="peq" style="opacity:.75">Total ${brl(total)}${naHora ? ` − ${brl(naHora)} que cada um paga na hora/fora do pacote` : ''} = pacote ${brl(total - naHora)} ÷ ${fmtNum(vagasDoGrupo())} ${vagasDoGrupo() === 1 ? 'vaga' : 'vagas'} ≈ ${brl(Math.round((total - naHora) / Math.max(1, vagasDoGrupo())))} (o valor da viagem é arredondado para cima em múltiplos de R$ 5)</div>` : ''}
   </div>
   <div class="cartao" style="padding:12px 16px">
     <div class="linha-bar" style="margin:0"><div class="barra" style="height:14px;display:flex">

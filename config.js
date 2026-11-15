@@ -3,6 +3,9 @@ window.CONFIG = {
   NOME_APP: 'Nunnez',
   SLOGAN: 'Rolê com Nunnez',
 
+  // true = site em manutenção para os participantes (o organizador continua entrando). Volte para false para reabrir.
+  MANUTENCAO: true,
+
   // Cole aqui o endereço do App da Web do Google Apps Script (veja o LEIA-ME).
   // Enquanto estiver vazio, o app roda em modo demonstração (dados só neste aparelho).
   API_URL: 'https://script.google.com/macros/s/AKfycbwBpwiPR6fdwqQxAvE3Ztio5CgMDqsi5743llik0hDJTEjzmLWMbdhQy-_QV5vFJaBL/exec'

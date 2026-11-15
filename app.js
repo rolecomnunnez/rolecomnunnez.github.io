@@ -1004,7 +1004,10 @@ const salvarPlano = mudar => { const pl = { ...(S.dados.viagem.plano || {}) }; m
 // Valor de vitrine: com o preço publicado, cada item aparece para o grupo com a margem dentro (custo × fator).
 // O que cada um paga na hora (entrada, ingresso) fica como está. O organizador vê o valor real na própria tela.
 const fatorVenda = () => { const f = Number(((S.dados.viagem.plano || {}).venda || {}).fator); return f > 0 ? f : 1; };
-const vit = (g, centavos, paraOutros) => (cadaUm(g) || (!paraOutros && souOrg())) ? centavos : Math.round(centavos * fatorVenda());
+// O organizador pode "ver como o grupo vê" para conferir o que os participantes enxergam (só muda a tela dele).
+const verComoGrupo = () => souOrg() && !!ls.get('rv:vergrupo', false);
+const comoGrupo = () => !souOrg() || verComoGrupo();
+const vit = (g, centavos, paraOutros) => (cadaUm(g) || (!paraOutros && !comoGrupo())) ? centavos : Math.round(centavos * fatorVenda());
 const vendaPublicada = () => !!((S.dados.viagem.plano || {}).venda || {}).porVaga;
 
 // Cartão que cada participante vê: quanto paga, sinal, parcelas, o que já pagou e o que falta.
@@ -1025,6 +1028,7 @@ function cartaoValor() {
 
 function telaPreco() {
   if (!souOrg()) { $('#tela').innerHTML = '<div class="cartao vazio"><b>🔒</b>Só o organizador vê a precificação.</div>'; return; }
+  ls.set('rv:vergrupo', false); // ao voltar para a precificação, sai do "ver como o grupo vê"
   const pl = S.dados.viagem.plano || {}, pr = pl.precif || {}, vd = pl.venda || null, rec = pl.recebido || {};
   const auto = vagasDoGrupo(), vagas = Number(pr.vagas) > 0 ? Number(pr.vagas) : auto;
   const tipo = pr.margemTipo === 'rs' ? 'rs' : 'pct';
@@ -1065,7 +1069,8 @@ function telaPreco() {
       <table style="width:100%;border-collapse:collapse"><thead><tr class="mut peq" style="text-align:left"><th>Vagas</th><th>Preço p/ manter margem</th><th>Lucro no preço atual</th></tr></thead><tbody>${lin}</tbody></table></div>
     <div class="cartao"><h2>📢 Preço para o grupo</h2>
       ${vd && vd.porVaga ? `<p style="margin:0 0 8px">Publicado: <b class="num">${brl(vd.porVaga)}</b> por pessoa${mudou ? ` <span class="neg">· o cálculo agora dá ${brl(r.porVaga)}</span>` : ''}</p>` : '<p class="mut peq" style="margin-top:-4px">Ainda não publicado: ninguém do grupo vê preço.</p>'}
-      <div class="btns"><button class="btn pri" id="pr-pub">${vd && vd.porVaga ? 'Atualizar preço publicado' : 'Publicar preço'}</button>${vd && vd.porVaga ? '<button class="btn" id="pr-des">Tirar do ar</button>' : ''}</div></div>`;
+      <div class="btns"><button class="btn pri" id="pr-pub">${vd && vd.porVaga ? 'Atualizar preço publicado' : 'Publicar preço'}</button>${vd && vd.porVaga ? '<button class="btn" id="pr-des">Tirar do ar</button>' : ''}</div>
+      ${vd && vd.porVaga ? `<button class="btn lg" id="pr-ver" style="margin-top:10px">👁 Ver o Roteiro como o grupo vê</button><p class="dica" style="margin-bottom:0">Na sua tela você vê os valores reais. Esse botão mostra os valores com a margem, como os participantes enxergam. Só muda a sua tela.</p>` : '<p class="dica" style="margin-bottom:0">Depois de publicar, aparece aqui um botão para ver o Roteiro como o grupo vê.</p>'}</div>`;
   }
   if (vd && vd.porVaga) {
     const ps = S.dados.pessoas || [];
@@ -1087,6 +1092,7 @@ function telaPreco() {
   };
   if ($('#pr-des')) $('#pr-des').onclick = () => { salvarPlano(p => { delete p.venda; }); toast('Preço tirado do ar.'); };
   $$('li[data-rec]').forEach(li => li.onclick = () => formRecebido(li.dataset.rec));
+  if ($('#pr-ver')) $('#pr-ver').onclick = () => { ls.set('rv:vergrupo', true); irAba('roteiro'); };
 }
 
 function formRecebido(pid) {
@@ -1595,7 +1601,7 @@ function telaRoteiro() {
   const aPagar = itens.filter(g => !pago(g) && !cadaUm(g));
   const totalRot = itens.reduce((s, g) => s + C.totalItem(g, S.dados), 0);
   // Com o preço publicado, quem não organiza vê o "Valor da viagem" (cartão abaixo) no lugar da soma dos custos.
-  let html = (!org && vendaPublicada()) ? '' : `<div class="cartao destaque">
+  let html = (comoGrupo() && vendaPublicada()) ? (org ? `<div class="aviso">👁 Você está vendo como o grupo vê. <a href="#" data-preco>Voltar à visão do organizador</a></div>` : '') : `<div class="cartao destaque">
     <div class="peq">${S.eu ? 'Sua parte na viagem (roteiro + gastos)' : 'Roteiro da viagem'}</div>
     <div style="font-size:1.9rem;font-weight:800" class="num">${S.eu ? brl(meuTotal) : brl(totalRot)}</div>
     <div class="peq">${itens.length} ${itens.length === 1 ? 'item' : 'itens'} no roteiro · ${brl(totalRot)} no total${aPagar.length ? ` · ${aPagar.length} a pagar` : ''}</div>

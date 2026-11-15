@@ -1007,7 +1007,9 @@ const fatorVenda = () => { const f = Number(((S.dados.viagem.plano || {}).venda 
 // O organizador pode "ver como o grupo vê" para conferir o que os participantes enxergam (só muda a tela dele).
 const verComoGrupo = () => souOrg() && !!ls.get('rv:vergrupo', false);
 const comoGrupo = () => !souOrg() || verComoGrupo();
-const vit = (g, centavos, paraOutros) => (cadaUm(g) || (!paraOutros && !comoGrupo())) ? centavos : C.inteiros(centavos * fatorVenda()); // reais inteiros, para cima
+// "Fora do pacote": item que o grupo paga direto no local (ex.: hospedagem). Não leva margem e não entra na soma do pacote.
+const foraPacote = g => !!((g.info || {}).fora);
+const vit = (g, centavos, paraOutros) => (cadaUm(g) || foraPacote(g) || (!paraOutros && !comoGrupo())) ? centavos : C.inteiros(centavos * fatorVenda()); // múltiplo de R$ 5
 const vendaPublicada = () => !!((S.dados.viagem.plano || {}).venda || {}).porVaga;
 
 // Cartão que cada participante vê: quanto paga, sinal, parcelas, o que já pagou e o que falta.
@@ -1037,6 +1039,8 @@ function telaPreco() {
   <div class="cartao"><h2>💰 Precificação <span class="mut peq">só você vê</span></h2>
     <p class="mut peq" style="margin-top:-4px">Coloque o custo total da viagem e a margem que quer ganhar. O app calcula o preço por pessoa. Os participantes veem só o preço, nunca o custo nem a margem.</p>
     <label class="cp"><span>Custo total da viagem (R$)</span><input type="text" inputmode="decimal" data-pr="custo" value="${esc(fmtNum(pr.custo))}" placeholder="Tudo o que você paga aos fornecedores"></label>
+    ${(() => { const its = itensRoteiro().filter(g => !cadaUm(g)), dentro = its.filter(g => !foraPacote(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0), fora = its.filter(foraPacote).reduce((s, g) => s + C.totalItem(g, S.dados), 0);
+      return its.length ? `<p class="dica" style="margin:-4px 0 10px">Itens do Roteiro no pacote somam <b>${brl(dentro)}</b>${fora ? ` (fora do pacote: ${brl(fora)})` : ''}. ${dentro && C.centavos(pr.custo) !== dentro ? `<a href="#" id="pr-soma">Usar ${brl(dentro)} como custo</a>` : ''}</p>` : ''; })()}
     <div class="grade2">
       <label class="cp"><span>Margem de lucro</span><select data-pr="margemTipo"><option value="pct" ${tipo === 'pct' ? 'selected' : ''}>% sobre o custo</option><option value="rs" ${tipo === 'rs' ? 'selected' : ''}>R$ fixo</option></select></label>
       <label class="cp"><span>${tipo === 'rs' ? 'Lucro desejado (R$)' : 'Margem (%)'}</span><input type="text" inputmode="decimal" data-pr="margem" value="${esc(fmtNum(pr.margem))}"></label>
@@ -1092,6 +1096,7 @@ function telaPreco() {
   };
   if ($('#pr-des')) $('#pr-des').onclick = () => { salvarPlano(p => { delete p.venda; }); toast('Preço tirado do ar.'); };
   $$('li[data-rec]').forEach(li => li.onclick = () => formRecebido(li.dataset.rec));
+  if ($('#pr-soma')) $('#pr-soma').onclick = e => { e.preventDefault(); const t = itensRoteiro().filter(g => !cadaUm(g) && !foraPacote(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0); salvarPlano(p => { p.precif = { ...(p.precif || {}), custo: t / 100 }; }); };
   if ($('#pr-ver')) $('#pr-ver').onclick = () => { ls.set('rv:vergrupo', true); irAba('roteiro'); };
 }
 
@@ -1585,6 +1590,7 @@ function htmlInfo(g) {
 }
 
 function selo(g) {
+  if (foraPacote(g) && !cadaUm(g)) return '<span class="selo" style="background:var(--suave);color:var(--azul)">fora do pacote · pagar no local</span>';
   if (cadaUm(g)) return '<span class="selo" style="background:var(--suave);color:var(--azul)">cada um paga o seu</span>';
   if ((g.pagamentos || []).length && g.status === 'previsto') {
     const pct = Math.round(C.jaPagoItem(g, S.dados) / Math.max(1, C.valorDoGasto(g)) * 100);
@@ -1650,6 +1656,7 @@ function telaRoteiro() {
       <div class="btns" style="margin-top:10px">
         ${S.eu ? `<button class="btn mini ${vou ? 'pri' : ''}" data-vou="${esc(g.id)}" data-v="1">✅ Vou</button><button class="btn mini ${vou ? '' : 'pri'}" data-vou="${esc(g.id)}" data-v="0">Não vou</button>` : ''}
         ${org ? `<button class="btn mini" data-editrot="${esc(g.id)}">Editar</button>` : ''}
+        ${org && !cadaUm(g) ? `<button class="btn mini" data-fora="${esc(g.id)}">${foraPacote(g) ? '↩ Voltar ao pacote' : '🚫 Tirar do pacote'}</button>` : ''}
       </div></div>`;
   });
   // devolução do carro alugado
@@ -1664,6 +1671,12 @@ function telaRoteiro() {
   preencherClima();
   $$('[data-vou]').forEach(b => b.onclick = () => op({ op: 'presenca', id: b.dataset.vou, pessoa: S.eu, vai: b.dataset.v === '1' }));
   $$('[data-editrot]').forEach(b => b.onclick = () => formRoteiro(S.dados.gastos.find(g => g.id === b.dataset.editrot)));
+  $$('[data-fora]').forEach(b => b.onclick = () => {
+    const g = S.dados.gastos.find(x => x.id === b.dataset.fora), info = { ...(g.info || {}) };
+    if (info.fora) delete info.fora; else info.fora = true;
+    op({ op: 'salvar', tipo: 'gasto', item: { ...g, info } });
+    toast(info.fora ? 'Fora do pacote: o grupo paga direto no local.' : 'De volta ao pacote.');
+  });
   if ($('#add-rot')) $('#add-rot').onclick = () => formRoteiro();
   if ($('#agenda')) $('#agenda').onclick = exportarAgenda;
   if ($('#rot-zap')) $('#rot-zap').onclick = () => compartilhar(textoRoteiro());

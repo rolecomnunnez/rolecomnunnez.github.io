@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v52'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v53'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -1077,15 +1077,18 @@ function cartaoValor() {
 /* ---------- Cobranças antecipadas (reservas, sinais): o organizador cadastra, o grupo vê no Acerto e o que já pagou vai abatendo ----------
    plano.cobrancas = [{ id, desc, tipo: 'pct' | 'rs', valor, data, item }]. "pct" é sobre o valor da viagem inteira ou sobre a parte da pessoa num item do roteiro;
    "rs" é em reais por vaga. O "já pago" é o total recebido da pessoa (Recebimentos), distribuído nas cobranças por ordem de vencimento. */
+const itensDaCobranca = c => Array.isArray(c.itens) ? c.itens : (c.item ? [c.item] : []);
+const nomesItens = c => itensDaCobranca(c).map(i => ((S.dados.gastos || []).find(g => g.id === i) || {}).descricao).filter(Boolean);
 const cobrancas = () => ((S.dados.viagem.plano || {}).cobrancas || []).slice().sort((a, b) => (a.data || '9999').localeCompare(b.data || '9999') || String(a.id).localeCompare(String(b.id)));
 const parteVenda = (g, pid) => (cadaUm(g) || foraPacote(g)) ? 0 : C.inteiros((C.dividir(g, S.dados)[pid] || 0) * fatorVenda());
 function valorCobranca(c, pid) {
   const p = pessoa(pid), vd = (S.dados.viagem.plano || {}).venda;
   if (!p || !vd || !vd.porVaga) return 0;
   const peso = Number(p.peso) > 0 ? Number(p.peso) : 1, n = Number(c.valor) || 0;
-  const g = c.item ? (S.dados.gastos || []).find(x => x.id === c.item) : null;
-  if (c.tipo === 'rs') return (c.item && !(g && parteVenda(g, pid))) ? 0 : C.centavos(n) * peso; // com item: só para quem vai nele
-  const base = c.item ? (g ? parteVenda(g, pid) : 0) : C.devidoPessoa(vd.porVaga, p.peso);
+  const gs = itensDaCobranca(c).map(i => (S.dados.gastos || []).find(x => x.id === i)).filter(Boolean);
+  const comItens = itensDaCobranca(c).length > 0, parte = gs.reduce((s, g) => s + parteVenda(g, pid), 0);
+  if (c.tipo === 'rs') return (comItens && !parte) ? 0 : C.centavos(n) * peso; // com itens: só para quem vai em algum deles (cobrado uma vez)
+  const base = comItens ? parte : C.devidoPessoa(vd.porVaga, p.peso);
   return Math.ceil(base * n / 100 / 500) * 500; // múltiplo de R$ 5, para cima
 }
 // Agenda de quem paga por "ids" (a pessoa e quem ela cobre): cada cobrança com valor, quanto já foi pago e se está atrasada.
@@ -1109,16 +1112,23 @@ function agendaDe(ids) {
 }
 function htmlAgenda(ag) {
   if (!ag || !ag.linhas.length) return '';
-  const lin = ag.linhas.map(l => `<li><span class="ico">${l.ok ? '✅' : l.atrasado ? '⚠️' : '⏳'}</span><span class="meio"><b>${esc(l.c.desc || 'Cobrança')}</b><small>${l.c.data ? 'até ' + fmtData(l.c.data) : 'sem data'}${l.pago && !l.ok ? ' · já pago ' + brl(l.pago) : ''}${l.atrasado ? ' · <span class="neg">atrasado</span>' : ''}</small></span><span class="num"><b>${brl(l.valor)}</b></span></li>`).join('');
+  const lin = ag.linhas.map(l => `<li><span class="ico">${l.ok ? '✅' : l.atrasado ? '⚠️' : '⏳'}</span><span class="meio"><b>${esc(l.c.desc || 'Cobrança')}</b>${nomesItens(l.c).length ? `<small style="white-space:normal">🗺️ Para: ${esc(nomesItens(l.c).join(' + '))}</small>` : '<small style="white-space:normal">🗺️ Para: a viagem toda</small>'}<small>${l.c.data ? 'até ' + fmtData(l.c.data) : 'sem data'}${l.pago && !l.ok ? ' · já pago ' + brl(l.pago) : ''}${l.atrasado ? ' · <span class="neg">atrasado</span>' : ''}</small></span><span class="num"><b>${brl(l.valor)}</b></span></li>`).join('');
   return `<ul class="lista">${lin}</ul>${ag.restante ? `<div class="peq" style="display:flex;justify-content:space-between;padding:8px 0"><span>Restante (até a viagem)</span><span class="num">${brl(ag.restante)}</span></div>` : ''}`;
 }
-const regraCobranca = c => c.tipo === 'rs' ? `R$ ${fmtNum(c.valor)} por vaga${c.item ? ' · ' + ((((S.dados.gastos || []).find(g => g.id === c.item)) || {}).descricao || 'um item') : ''}` : `${fmtNum(c.valor)}% ${c.item ? 'de ' + ((((S.dados.gastos || []).find(g => g.id === c.item)) || {}).descricao || 'um item') : 'do valor da viagem'}`;
+const regraCobranca = c => {
+  const nm = nomesItens(c);
+  return (c.tipo === 'rs' ? `R$ ${fmtNum(c.valor)} por vaga` : `${fmtNum(c.valor)}% ${nm.length ? 'da parte de cada um' : 'do valor da viagem'}`) + (nm.length ? ' · para: ' + nm.join(' + ') : '');
+};
 
 function formCobranca(c) {
-  const novo = !c; c = c || { id: uid('C'), desc: '', tipo: 'pct', valor: '', data: '', item: '' };
+  const novo = !c; c = c || { id: uid('C'), desc: '', tipo: 'pct', valor: '', data: '', itens: [] };
   const its = itensRoteiro().filter(g => !cadaUm(g) && !foraPacote(g));
   const f = janela(novo ? 'Nova cobrança antecipada' : 'Cobrança antecipada', `
-    <label class="cp"><span>Qual item do roteiro está pedindo o adiantamento?</span><select name="item"><option value="">Nenhum (cobrança geral da viagem)</option>${its.map(g => `<option value="${esc(g.id)}" ${c.item === g.id ? 'selected' : ''}>${esc(g.descricao)}${g.data ? ' · ' + esc(fmtData(g.data)) : ''}</option>`).join('')}</select></label>
+    <span style="display:block;font-size:.85rem;color:var(--mut);font-weight:600;margin-bottom:2px">Quais itens do roteiro estão pedindo esse adiantamento?</span>
+    <div style="max-height:200px;overflow:auto;border:1px solid var(--lin);border-radius:12px;padding:6px 10px;margin-bottom:10px">
+      ${its.length ? its.map(g => `<label class="check"><input type="checkbox" name="itens" value="${esc(g.id)}" ${itensDaCobranca(c).includes(g.id) ? 'checked' : ''}>${esc(g.descricao)}${g.data ? ' · ' + esc(fmtData(g.data)) : ''}</label>`).join('') : '<p class="mut peq">Nenhum item no roteiro ainda.</p>'}
+    </div>
+    <p class="dica" style="margin-top:-4px">Marque um ou mais (ex.: os 2 passeios que o mesmo local reservou). Sem marcar nenhum, vale para a viagem toda.</p>
     <div class="grade2">
       <label class="cp"><span>Cobrar em</span><select name="tipo"><option value="pct" ${c.tipo !== 'rs' ? 'selected' : ''}>% (percentual)</option><option value="rs" ${c.tipo === 'rs' ? 'selected' : ''}>R$ por vaga</option></select></label>
       <label class="cp"><span id="cob-rot">${c.tipo === 'rs' ? 'Valor por vaga (R$)' : 'Percentual (%)'}</span><input type="text" inputmode="decimal" name="valor" required value="${esc(fmtNum(c.valor))}" placeholder="Ex.: 30"></label>
@@ -1128,22 +1138,21 @@ function formCobranca(c) {
     <label class="cp"><span>Nome (opcional)</span><input type="text" name="desc" value="${esc(c.desc)}" placeholder="Ex.: Sinal da pousada. Se vazio, usa o nome do item." autocapitalize="sentences"></label>
     <p class="dica">Cada pessoa vê o valor dela no Acerto. O que ela já pagou (Recebimentos) vai abatendo as cobranças por ordem de data. Casal paga o dobro.</p>`,
     `${novo ? '' : '<button class="btn perigo" value="del" formnovalidate>Excluir</button>'}<button class="btn" value="x" formnovalidate>Cancelar</button><button class="btn pri" value="ok">Salvar</button>`);
-  const selItem = f.querySelector('[name=item]');
   const ajustaCob = () => {
-    const rs = f.tipo.value === 'rs', tem = !!selItem.value;
+    const rs = f.tipo.value === 'rs', n = f.querySelectorAll('[name=itens]:checked').length, tem = n > 0, varios = n > 1;
     $('#cob-rot', f).textContent = rs ? 'Valor por vaga (R$)' : 'Percentual (%)';
-    $('#cob-dica', f).textContent = rs ? (tem ? 'Valor fixo por vaga, só para quem vai nesse item.' : 'Valor fixo por vaga para todos.')
-      : (tem ? 'Cada pessoa paga esse % da parte dela nesse item.' : 'Cada pessoa paga esse % do valor da viagem dela.');
+    $('#cob-dica', f).textContent = rs ? (tem ? 'Valor fixo por vaga (uma vez só), para quem vai em algum dos itens marcados.' : 'Valor fixo por vaga para todos.')
+      : (tem ? `Cada pessoa paga esse % da soma da parte dela ${varios ? 'nesses itens' : 'nesse item'}.` : 'Cada pessoa paga esse % do valor da viagem dela.');
   };
-  f.tipo.onchange = ajustaCob; selItem.onchange = ajustaCob; ajustaCob();
+  f.tipo.onchange = ajustaCob; f.querySelectorAll('[name=itens]').forEach(x => x.onchange = ajustaCob); ajustaCob();
   f.onsubmit = e => {
     const b = e.submitter && e.submitter.value;
     if (b === 'del') { if (!confirm('Excluir esta cobrança?')) return e.preventDefault(); salvarPlano(p => { p.cobrancas = (p.cobrancas || []).filter(x => x.id !== c.id); }); return toast('Cobrança excluída.'); }
     if (b !== 'ok') return;
     const fd = new FormData(f), valor = lerNum(fd.get('valor')), tipo = fd.get('tipo');
     if (!(valor > 0) || (tipo === 'pct' && valor > 100)) { e.preventDefault(); return toast(tipo === 'pct' ? 'Informe um percentual entre 1 e 100.' : 'Informe o valor por vaga.'); }
-    const itemId = fd.get('item') || '', gi = itemId ? (S.dados.gastos || []).find(x => x.id === itemId) : null;
-    const item = { id: c.id, desc: fraseNormal(fd.get('desc')) || (gi ? 'Reserva: ' + gi.descricao : 'Pagamento antecipado'), tipo, valor, data: fd.get('data') || '', item: itemId };
+    const ids = fd.getAll('itens'), nomes = ids.map(i => ((S.dados.gastos || []).find(x => x.id === i) || {}).descricao).filter(Boolean);
+    const item = { id: c.id, desc: fraseNormal(fd.get('desc')) || (nomes.length ? 'Reserva: ' + nomes.join(' + ') : 'Pagamento antecipado'), tipo, valor, data: fd.get('data') || '', itens: ids };
     salvarPlano(p => { p.cobrancas = [...(p.cobrancas || []).filter(x => x.id !== c.id), item]; });
     toast('Cobrança salva ✓');
   };

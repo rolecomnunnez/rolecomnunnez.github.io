@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v62'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v63'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -1876,7 +1876,7 @@ function telaRoteiro() {
       ops.forEach(x => feitos.add(x.id));
       // Resumo: quantos escolheram cada opção e quem ainda não escolheu nenhuma.
       const semEscolha = S.dados.pessoas.filter(p => ops.every(x => (x.ausentes || []).includes(p.id))).map(p => esc(p.nome.split(' ')[0]));
-      const resumoAlt = ops.map(x => `<b>${esc(rotuloOpcao(x))}</b>: ${nVao(x)} ${nVao(x) === 1 ? 'pessoa' : 'pessoas'}`).join(' · ') + (semEscolha.length ? ` · <span class="neg">ainda não escolheram: ${semEscolha.join(', ')}</span>` : ' · <span class="pos">todos já escolheram ✓</span>');
+      const resumoAlt = ops.map(x => `<b>${esc(rotuloOpcao(x))}</b>: ${nVao(x)} ${nVao(x) === 1 ? 'pessoa' : 'pessoas'}`).join(' · ') + (semEscolha.length ? ` · <span class="neg">ainda não escolheram: ${semEscolha.join(', ')}</span>` : ' · <span class="pos">todos já escolheram ✓</span>') + (org ? ` <button class="btn mini" data-limpaalt="${esc(alt)}" style="margin-left:6px">🧹 Limpar escolhas</button>` : '');
       html += `<div class="alt-comp"><div class="alt-tit">⚖️ Compare e escolha: ${ops.map(x => esc(rotuloOpcao(x))).join(' | ')}</div><div class="peq" style="margin:-4px 2px 8px">${resumoAlt}</div><div class="alt-grade">${ops.map(x => cartaoRot(x, ops)).join('')}</div></div>`;
     } else html += cartaoRot(g);
   });
@@ -1903,6 +1903,12 @@ function telaRoteiro() {
     const B = { ...g, id: uid('G'), descricao: '', link: '', obs: '', valor: '', valorBRL: '', anexos: [], pagamentos: [], status: 'previsto', pagoPor: '', info: { alt: gid, opcao: 'Airbnb' }, ausentes: todos, criadoPor: S.eu };
     op({ op: 'salvar', tipo: 'gasto', item: A }); op({ op: 'salvar', tipo: 'gasto', item: B });
     formRoteiro(B);
+  });
+  // Zera as escolhas das opções: ninguém fica marcado em nenhuma, e cada um escolhe de novo.
+  $$('[data-limpaalt]').forEach(b => b.onclick = () => {
+    if (!confirm('Limpar as escolhas de todos nesta comparação? Cada pessoa precisa tocar em "Vou nesta" de novo.')) return;
+    S.dados.gastos.filter(x => altDe(x) === b.dataset.limpaalt).forEach(x => S.dados.pessoas.forEach(p => { if (!(x.ausentes || []).includes(p.id)) op({ op: 'presenca', id: x.id, pessoa: p.id, vai: false }); }));
+    toast('Escolhas limpas ✓');
   });
   $$('[data-escolher]').forEach(b => b.onclick = () => {
     const g = S.dados.gastos.find(x => x.id === b.dataset.escolher), outras = opcoesDe(g).filter(x => x.id !== g.id);
@@ -1982,8 +1988,8 @@ function formRoteiro(g) {
       <option value="noites" ${g.modo === 'noites' ? 'selected' : ''}>Por noites dormidas (hospedagem)</option></select></label>
     </div>
     <span style="display:block;font-size:.85rem;color:var(--mut);font-weight:600;margin-bottom:2px">Quem vai</span>
-    ${S.dados.pessoas.map(p => `<label class="check"><input type="checkbox" name="vai" value="${esc(p.id)}" ${(g.ausentes || []).includes(p.id) ? '' : 'checked'}>${esc(p.nome)}</label>`).join('')}
-    <p class="dica">Quem entrar na viagem depois já entra marcado. Cada um também pode tocar em "Não vou".</p>
+    ${altDe(g) ? '<p class="dica" style="margin-top:0">Esta é uma das opções para comparar: cada pessoa escolhe tocando em <b>"Vou nesta"</b> no Roteiro. Aqui não se marca quem vai.</p>'
+      : S.dados.pessoas.map(p => `<label class="check"><input type="checkbox" name="vai" value="${esc(p.id)}" ${(g.ausentes || []).includes(p.id) ? '' : 'checked'}>${esc(p.nome)}</label>`).join('') + '<p class="dica">Quem entrar na viagem depois já entra marcado. Cada um também pode tocar em "Não vou".</p>'}
     <div id="bx-pagamento">
     <span style="display:block;font-size:.85rem;color:var(--mut);font-weight:600;margin-bottom:2px">Pagamento</span>
     <label class="check"><input type="radio" name="sit" value="previsto" ${sitInicial === 'previsto' ? 'checked' : ''}>Ainda vai ser pago (cada um já vê quanto vai dever)</label>
@@ -2080,8 +2086,9 @@ function formRoteiro(g) {
     const fd = new FormData(f), valor = lerNum(fd.get('valor'));
     const pp = fd.get('tipoValor') === 'porPessoa';
     if (!(valor > 0)) { e.preventDefault(); return toast(pp ? 'Informe o valor por pessoa.' : 'Informe o valor total.'); }
-    const vao = fd.getAll('vai');
-    if (!vao.length) { e.preventDefault(); return toast('Marque pelo menos uma pessoa que vai.'); }
+    // Opção para comparar (Hotel | Airbnb): a presença é escolha de cada um, então o formulário não mexe nela.
+    const vao = altDe(g) ? S.dados.pessoas.filter(p => !(g.ausentes || []).includes(p.id)).map(p => p.id) : fd.getAll('vai');
+    if (!vao.length && !altDe(g)) { e.preventDefault(); return toast('Marque pelo menos uma pessoa que vai.'); }
     const link = String(fd.get('link') || '').trim();
     const sit = fd.get('sit');
     if (!pp && sit === 'partes' && !pags.length) { e.preventDefault(); return toast('Adicione pelo menos um pagamento (ex.: o sinal).'); }

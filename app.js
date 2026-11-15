@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v73'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v87'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -206,6 +206,8 @@ function guardar() {
 function pessoa(id) { return (S.dados.pessoas || []).find(p => p.id === id); }
 const legado = () => !!(S && S.dados && S.dados.viagem.legado);
 // Organizador: cadastra pessoas, define senhas iniciais, muda a viagem e confirma passagens.
+// Permissões dadas pelo administrador (viagens antigas ou servidor sem aprovação: tudo liberado).
+const podeFazer = k => { const a = S && S.dados && S.dados.viagem && S.dados.viagem.aprovacao; return !a || !a.perm || a.perm[k] !== false; };
 const souOrg = () => legado() || (pessoa(S.eu) || {}).papel === 'organizador';
 function guardarSessao(tok, eu) {
   S.tok = tok || ''; S.eu = eu || S.eu;
@@ -608,7 +610,7 @@ function render() {
     return telaLogin();
   }
   const emViagem = !!(S && S.dados);
-  if (!emViagem) { VER_COMO = ''; const vb = $('#ver-como-bar'); if (vb) vb.remove(); document.body.classList.remove('ver-como'); }
+  if (!emViagem) { VER_COMO = ''; const vb = $('#ver-como-bar'); if (vb) vb.remove(); document.body.classList.remove('ver-como'); const ab0 = $('#aprov-bar'); if (ab0) ab0.remove(); }
   document.body.classList.toggle('em-viagem', emViagem);
   $('#hero-v').classList.toggle('oculto', !emViagem);
   $('#abas').classList.toggle('oculto', !emViagem);
@@ -634,6 +636,12 @@ function render() {
   $('#hero-v').innerHTML = `<div class="hv-chips">${v.destino ? `<span class="hv-chip">📍 ${esc(v.destino)}</span>` : ''}${cont ? `<span class="hv-chip">${cont}</span>` : ''}</div>`;
   $('#hero-v').classList.toggle('oculto', !v.destino && !cont);
   document.title = v.nome + ' · ' + NOME;
+  // Aviso da aprovação do administrador (só enquanto pendente ou recusada)
+  { const ap = v.aprovacao, texto = ap && ap.status === 'pendente' ? '⏳ Viagem aguardando a aprovação do administrador. Você já pode montar o roteiro; convidar pessoas, precificar e cobrar ficam liberados depois.'
+      : ap && ap.status === 'recusada' ? '🚫 Esta viagem não foi aprovada.' + (ap.motivo ? ' ' + ap.motivo : '') : '';
+    let ab = $('#aprov-bar');
+    if (!texto || !souOrg()) { if (ab) ab.remove(); }
+    else { if (!ab) { ab = document.createElement('div'); ab.id = 'aprov-bar'; ab.className = 'aviso'; $('#tela').before(ab); } ab.textContent = texto; } }
   $$('#abas button').forEach(b => b.setAttribute('aria-current', b.dataset.aba === ABA ? 'page' : 'false'));
   if (ABA === 'preco' || (VER_COMO && !pessoa(VER_COMO))) VER_COMO = '';
   const eu0 = S.eu; if (VER_COMO) S.eu = VER_COMO; // desenha a tela como a pessoa escolhida (só leitura)
@@ -664,6 +672,7 @@ async function buscarMinhasViagens() {
   try {
     const j = await chamar({ acao: 'contaViagens', ctok: CONTA.ctok });
     ls.set('rv:minhas', j.viagens);
+    ls.set('rv:admin', { admin: !!j.admin, pendentes: j.pendentes || 0 });
     if (j.nome && j.nome !== CONTA.nome) { CONTA.nome = j.nome; ls.set('rv:conta', CONTA); }
     if (!S) render();
   } catch (e) {
@@ -686,9 +695,10 @@ function telaInicio() {
     <button class="btn pri lg" id="nova">+ Nova viagem</button>
     <button class="btn lg" id="entrar">Entrar com link de convite</button>
   </div>
+  ${CONTA && ls.get('rv:admin', {}).admin ? `<button class="btn lg" id="aprovacoes" style="margin-bottom:14px">🛡️ Aprovações${ls.get('rv:admin', {}).pendentes ? ` · ${ls.get('rv:admin', {}).pendentes} ${ls.get('rv:admin', {}).pendentes === 1 ? 'pendente' : 'pendentes'}` : ''}</button>` : ''}
   <div class="titulo-sec">Minhas viagens</div>
   ${l === null ? '<div class="cartao vazio"><b>⏳</b>Buscando suas viagens…</div>' : l.length ? `<div class="cartao" style="padding:4px 16px"><ul class="lista">${l.map(x => `
-    <li class="clica" data-v="${esc(x.v)}" data-c="${esc(x.c)}"><span class="ico">🧳</span><span class="meio"><b>${esc(x.nome || x.v)}</b><small>${x.inicio !== undefined ? fmtPeriodo(x) + (x.papel === 'organizador' ? ' · 👑 organizador' : '') : 'Código ' + esc(x.c)}</small></span><span class="mut">›</span></li>`).join('')}</ul></div>`
+    <li class="clica" data-v="${esc(x.v)}" data-c="${esc(x.c)}"><span class="ico">🧳</span><span class="meio"><b>${esc(x.nome || x.v)}</b><small>${x.inicio !== undefined ? fmtPeriodo(x) + (x.papel === 'organizador' ? ' · 👑 organizador' : '') + (x.aprov === 'pendente' ? ' · ⏳ aguardando aprovação' : x.aprov === 'recusada' ? ' · 🚫 não aprovada' : '') : 'Código ' + esc(x.c)}</small></span><span class="mut">›</span></li>`).join('')}</ul></div>`
     : '<div class="cartao vazio"><b>🧳</b>Nenhuma viagem ainda. Crie uma ou entre pelo link de convite que um amigo mandou.</div>'}
   ${CONTA ? `<p class="dica" style="text-align:center">Conta: ${esc(CONTA.email)} · <a href="#" id="sair-conta-nunnez">Sair</a></p>` : ''}
   <div class="vantagens">
@@ -698,6 +708,7 @@ function telaInicio() {
     <div><b>⚡</b>Acerto com o mínimo de Pix</div>
   </div>`;
   $('#nova').onclick = novaViagem;
+  if ($('#aprovacoes')) $('#aprovacoes').onclick = janelaAprovacoes;
   $('#entrar').onclick = entrarComLink;
   if ($('#sair-conta-nunnez')) $('#sair-conta-nunnez').onclick = e => { e.preventDefault(); sairDaContaNunnez(); };
   $$('#tela li[data-v]').forEach(li => li.onclick = () => abrir(li.dataset.v, li.dataset.c));
@@ -1297,6 +1308,7 @@ function formCobranca(c) {
 
 function telaPreco() {
   if (!souOrg()) { $('#tela').innerHTML = '<div class="cartao vazio"><b>🔒</b>Só o organizador vê a precificação.</div>'; return; }
+  if (!podeFazer('precificar')) { $('#tela').innerHTML = '<button class="btn" data-volta-grupo style="margin-bottom:10px">‹ Voltar para o grupo</button><div class="cartao vazio"><b>🔒</b>A precificação ainda não foi liberada pelo administrador.</div>'; const vg = $('[data-volta-grupo]'); if (vg) vg.onclick = () => irAba('grupo'); return; }
   const pl = S.dados.viagem.plano || {}, pr = pl.precif || {}, vd = pl.venda || null, rec = pl.recebido || {};
   const auto = vagasDoGrupo(), vagas = Number(pr.vagas) > 0 ? Number(pr.vagas) : auto;
   const tipo = pr.margemTipo === 'rs' ? 'rs' : 'pct';
@@ -2391,14 +2403,14 @@ function telaGrupo() {
   const zap = (v.plano || {}).whatsapp || '';
   let html = `${zap ? `<a class="btn lg" href="${esc(zap)}" target="_blank" rel="noopener" style="background:#25d366;border-color:#25d366;color:#fff;margin-bottom:14px">💬 Entrar no grupo do WhatsApp</a>` : ''}
   ${cartaoValor()}
-  ${org ? `<button class="btn lg" data-preco style="margin-bottom:14px">💰 Precificação (custo, margem e preço de venda)${(() => { const pl = v.plano || {}, x = pl.venda && pl.precif ? calcVenda(pl.precif, pl.isentos) : null; return x && x.venda.porVaga !== pl.venda.porVaga ? ' ⚠️ preço desatualizado' : ''; })()}</button>` : ''}
+  ${org && podeFazer('precificar') ? `<button class="btn lg" data-preco style="margin-bottom:14px">💰 Precificação (custo, margem e preço de venda)${(() => { const pl = v.plano || {}, x = pl.venda && pl.precif ? calcVenda(pl.precif, pl.isentos) : null; return x && x.venda.porVaga !== pl.venda.porVaga ? ' ⚠️ preço desatualizado' : ''; })()}</button>` : ''}
   ${org ? `<div class="cartao"><h2>💬 Grupo do WhatsApp</h2>
     <label class="cp" style="margin:0"><span>Cole o link de convite do grupo</span><input type="text" inputmode="url" id="v-zap" value="${esc(zap)}" placeholder="https://chat.whatsapp.com/…" autocapitalize="off"></label>
     <p class="dica" style="margin:6px 0 0">No WhatsApp: abra o grupo › toque no nome › <b>Convidar via link</b> › Copiar link. Para todos aparece o botão "Entrar no grupo do WhatsApp".</p></div>` : ''}
-  <div class="cartao"><h2>Convidar amigos</h2>
+  ${!podeFazer('convidar') ? `<div class="cartao"><h2>Convidar amigos</h2><p class="mut peq" style="margin-top:-4px">🔒 Convidar pessoas fica liberado quando o administrador aprovar a viagem.</p></div>` : `<div class="cartao"><h2>Convidar amigos</h2>
     <p class="mut peq" style="margin-top:-4px">${leg ? 'Quem abrir o link entra na viagem e já pode lançar gastos.' : 'Mande o link no grupo. Cada um toca no próprio nome (ou em "Não estou na lista") e cria a sua senha. Você não precisa cadastrar ninguém antes.'}${DEMO ? ' <b>No modo demonstração o link só funciona neste aparelho.</b>' : ''}</p>
     <div class="copia">${esc(link)}</div>
-    <div class="btns"><button class="btn pri" id="conv-comp">Enviar convite</button><button class="btn" id="conv-copia">Copiar link</button></div></div>
+    <div class="btns"><button class="btn pri" id="conv-comp">Enviar convite</button><button class="btn" id="conv-copia">Copiar link</button></div></div>`}
   <div class="titulo-sec">Pessoas (${S.dados.pessoas.length})</div>
   ${leg ? '' : (() => {
     const fora = S.dados.pessoas.filter(p => !entrouNoApp(p)), dentro = S.dados.pessoas.length - fora.length;
@@ -2428,8 +2440,8 @@ function telaGrupo() {
   </div>
   <p class="dica" style="text-align:center">Seus dados, senha e sair da conta: botão 👤 no canto de cima.<br>Versão do app: ${VERSAO_APP}</p>`;
   $('#tela').innerHTML = html;
-  $('#conv-comp').onclick = () => compartilhar(leg ? `Entra na viagem "${v.nome}" no ${NOME} para a gente dividir os gastos: ${link}` : `🧳 Entra na viagem "${v.nome}" no ${NOME}: ${link}\nEntre com sua conta Nunnez (ou crie uma em 1 minuto) e você já cai na viagem. Lá tem o roteiro, quanto fica para cada um e onde lançar os gastos.`, link);
-  $('#conv-copia').onclick = () => copiar(link);
+  if ($('#conv-comp')) $('#conv-comp').onclick = () => compartilhar(leg ? `Entra na viagem "${v.nome}" no ${NOME} para a gente dividir os gastos: ${link}` : `🧳 Entra na viagem "${v.nome}" no ${NOME}: ${link}\nEntre com sua conta Nunnez (ou crie uma em 1 minuto) e você já cai na viagem. Lá tem o roteiro, quanto fica para cada um e onde lançar os gastos.`, link);
+  if ($('#conv-copia')) $('#conv-copia').onclick = () => copiar(link);
   if ($('#juntar-p')) $('#juntar-p').onclick = formJuntar;
   if ($('#v-zap')) $('#v-zap').onchange = e => {
     let x = e.target.value.trim();
@@ -2541,7 +2553,36 @@ dlg.addEventListener('close', () => { const t = $('#toast'); if (t && t.parentNo
 function fecharJanela() { if (dlg.open) dlg.close(); }
 dlg.addEventListener('click', e => { if (e.target === dlg) fecharJanela(); });
 
+// Aprovações (só o administrador): decide as viagens novas e quais permissões cada organizador recebe.
+const PERMS_APP = [['precificar', '💰 Inserir a precificação (margem e preço de venda)'], ['verTudo', '👁️ Ver a situação e os pagamentos de todos'], ['convidar', '✉️ Convidar e cadastrar pessoas'], ['cobrancas', '💳 Cobranças à parte e antecipadas'], ['editarRoteiro', '🗺️ Editar o roteiro']];
+async function janelaAprovacoes() {
+  const f = janela('🛡️ Aprovações', '<p class="mut">Carregando…</p>', '<button class="btn" value="x" formnovalidate>Fechar</button>');
+  const corpo = $('.dlg-corpo', f);
+  const carregar = async () => {
+    let j;
+    try { j = await chamar({ acao: 'adminLista', ctok: CONTA.ctok }); }
+    catch (err) { corpo.innerHTML = `<p class="neg">${esc(err.servidor ? err.message : 'Sem internet.')}</p>`; return; }
+    ls.set('rv:admin', { admin: true, pendentes: j.pendencias.filter(x => x.status === 'pendente').length });
+    corpo.innerHTML = j.pendencias.length ? j.pendencias.map(x => `<div class="cartao" data-av="${esc(x.v)}">
+      <b>${esc(x.nome)}</b> <span class="selo">${x.status === 'pendente' ? '⏳ pendente' : x.status === 'aprovada' ? '✅ aprovada' : '🚫 recusada'}</span>
+      <div class="peq mut" style="margin:4px 0 8px">👑 ${esc(x.organizador || '—')}${x.email ? ' · ' + esc(x.email) : ''}<br>📍 ${esc(x.destino || '—')} · ${x.inicio ? fmtData(x.inicio) : 'sem data'}${x.fim ? ' a ' + fmtData(x.fim) : ''}</div>
+      ${PERMS_APP.map(([k, t]) => `<label class="check"><input type="checkbox" data-perm="${k}" ${x.status === 'pendente' || x.perm[k] ? 'checked' : ''}>${t}</label>`).join('')}
+      <div class="btns" style="margin-top:8px"><button type="button" class="btn mini pri" data-dec="aprovada">${x.status === 'aprovada' ? 'Salvar permissões' : 'Aprovar'}</button>${x.status === 'recusada' ? '' : '<button type="button" class="btn mini perigo" data-dec="recusada">Recusar</button>'}</div></div>`).join('')
+      : '<div class="cartao vazio"><b>✅</b>Nenhuma viagem para aprovar.</div>';
+    $$('[data-dec]', corpo).forEach(b => b.onclick = async () => {
+      const card = b.closest('[data-av]'), perm = {};
+      $$('[data-perm]', card).forEach(c => { perm[c.dataset.perm] = c.checked; });
+      if (b.dataset.dec === 'recusada' && !confirm('Recusar esta viagem? O organizador perde o acesso a editar o roteiro.')) return;
+      b.disabled = true;
+      try { await chamar({ acao: 'adminDecidir', ctok: CONTA.ctok, v: card.dataset.av, status: b.dataset.dec, perm }); toast(b.dataset.dec === 'aprovada' ? 'Aprovada ✓' : 'Recusada'); ultimaBuscaMinhas = 0; await carregar(); }
+      catch (err) { b.disabled = false; toast(err.servidor ? err.message : 'Sem internet.'); }
+    });
+  };
+  carregar();
+}
+
 function novaViagem() {
+  const souAdm = !CONTA || !!ls.get('rv:admin', {}).admin; // sem conta (demonstração) ou administrador: pode cadastrar gente já
   const f = janela('Nova viagem', `
     <label class="cp"><span>Nome da viagem</span><input type="text" name="nome" required placeholder="Ex.: Mato Grosso 2027"></label>
     <div class="grade2"><label class="cp"><span>Início</span><input type="date" name="inicio"></label><label class="cp"><span>Fim</span><input type="date" name="fim"></label></div>
@@ -2552,9 +2593,9 @@ function novaViagem() {
     <label class="cp"><span>Seu e-mail</span><input type="email" name="email" autocomplete="email" placeholder="Para receber os avisos de passagem"></label>`}
     <label class="cp"><span>De onde você sai</span><input type="text" name="origem" placeholder="Ex.: Goiânia ou GYN"></label>
     ${CONTA ? '' : '<label class="cp"><span>Crie sua senha</span><input type="password" name="senha" minlength="4" required autocomplete="new-password"></label>'}
-    <div class="titulo-sec" style="margin-top:4px">Quem mais vai</div>
+    ${souAdm ? `<div class="titulo-sec" style="margin-top:4px">Quem mais vai</div>
     <label class="cp"><span>Um nome por linha (opcional)</span><textarea name="pessoas" rows="4" placeholder="Ana&#10;João"></textarea></label>
-    <p class="dica">Não precisa pôr todo mundo agora: quem receber o link pode se cadastrar sozinho.</p>`,
+    <p class="dica">Não precisa pôr todo mundo agora: quem receber o link pode se cadastrar sozinho.</p>` : '<p class="dica">🛡️ A viagem passa pela aprovação do administrador. Você já pode montar o roteiro; convidar pessoas, precificar e cobrar são liberados depois.</p>'}`,
     `<button class="btn" value="x" formnovalidate>Cancelar</button><button class="btn pri" value="ok">Criar viagem</button>`);
   ligarDatas(f.inicio, f.fim, { min: hoje() }, 1);
   f.onsubmit = async e => {
@@ -2577,7 +2618,8 @@ function novaViagem() {
       fecharJanela();
       ABA = 'roteiro';
       abrir(j.v, j.c);
-      toast('Viagem criada! Monte o roteiro e mande o convite no grupo.');
+      const apv = j.dados.viagem.aprovacao;
+      toast(apv && apv.status === 'pendente' ? 'Viagem criada e enviada para aprovação. Enquanto isso, monte o roteiro.' : 'Viagem criada! Monte o roteiro e mande o convite no grupo.');
     } catch (err) { btn.disabled = false; btn.textContent = 'Criar viagem'; toast(err.servidor ? err.message : 'Precisa de internet para criar a viagem.'); }
   };
 }

@@ -602,6 +602,7 @@ function lerHash() {
 
 /* ---------- desenho das telas ---------- */
 function render() {
+  _pacote = null; // valores do pacote recalculados a cada desenho
   document.body.classList.remove('modo-login'); // a tela de login liga de novo se for ela
   if (S && S.login) {
     ['#abas', '#fab', '#btn-sync', '#btn-conta'].forEach(s => $(s).classList.add('oculto'));
@@ -850,21 +851,12 @@ function secaoPacote(eu, meusIds, parteDe) {
   const pg = meusIds.reduce((s, id) => s + (rec[id] || 0), 0), falta = Math.max(0, devido - pg);
   const orgP = (S.dados.pessoas || []).find(p => p.papel === 'organizador');
   const euOrg = souOrg();
-  // Cada item é arredondado para R$ 5, então a soma pode ficar uns reais fora do valor da viagem: a diferença vai para o item maior do pacote.
-  // O preço divide o custo só entre quem paga (vagas); os itens são divididos entre todos. Por isso cada item é escalado
-  // para que a lista some exatamente o valor da viagem desta pessoa.
-  const dentro = itens.filter(g => !cadaUm(g) && !foraPacote(g));
-  // Cada item mostra o custo + a margem. O que falta para fechar o valor da viagem é a parte de quem não paga (rateada) e o arredondamento: vira uma linha própria.
-  const valIt = new Map(itens.map(g => [g, vit(g, parteDe(g))]));
-  let rateio = 0;
-  if (dentro.length && devido > 0) {
-    rateio = devido - dentro.reduce((s, g) => s + valIt.get(g), 0);
-    if (rateio < 0) { const maior = dentro.slice().sort((a, b) => valIt.get(b) - valIt.get(a))[0]; valIt.set(maior, valIt.get(maior) + rateio); rateio = 0; }
-  }
+  // Itens do pacote com o valor de vitrine (custo de quem não paga + margem já dentro): a lista soma o valor da viagem.
+  const valIt = new Map(itens.map(g => { const v = meusIds.map(id => vitP(g, id)); return [g, v.every(x => x == null) ? vit(g, parteDe(g)) : v.reduce((s, x) => s + (x || 0), 0)]; }));
   const linhas = itens.map(g => {
     const cat = C.CAT[g.categoria] || C.CAT.outros, fora = foraPacote(g) || cadaUm(g);
-    return `<li><span class="ico">${cat.icone}</span><span class="meio"><b>${esc(g.descricao)}</b><small>${cadaUm(g) ? 'pague na hora' : foraPacote(g) ? esc(quando(g)) : esc(quando(g)) + ' · pagamento em grupo'}</small></span><span class="num"><b>${comoGrupo() && !fora ? '' : brl(valIt.get(g))}</b></span></li>`;
-  }).join('') + (rateio > 0 && !comoGrupo() ?`<li><span class="ico">🤝</span><span class="meio"><b>Organização e taxas da viagem</b><small>coordenação, reservas e arredondamento</small></span><span class="num"><b>${brl(rateio)}</b></span></li>` : '');
+    return `<li><span class="ico">${cat.icone}</span><span class="meio"><b>${esc(g.descricao)}</b><small>${cadaUm(g) ? 'pague na hora' : foraPacote(g) ? esc(quando(g)) : esc(quando(g)) + ' · pagamento em grupo'}</small></span><span class="num"><b>${brl(valIt.get(g))}</b></span></li>`;
+  }).join('');
   return `<div class="titulo-sec">🗺️ Sua parte no roteiro</div><div class="cartao" style="padding:4px 16px">${linhas ? `<ul class="lista">${linhas}</ul>` : '<p class="mut peq">Nenhum item do roteiro marcado com você ainda.</p>'}
     <div class="peq" style="display:flex;justify-content:space-between;border-top:1px solid var(--lin);padding:10px 0;font-weight:700"><span>Valor da viagem</span><span class="num">${brl(devido)}</span></div>
     <div class="peq" style="display:flex;justify-content:space-between;padding:0 0 10px"><span>Já pago</span><span class="num pos">${brl(pg)}</span></div>
@@ -1124,11 +1116,44 @@ const foraPacote = g => !!((g.info || {}).fora);
 const vit = (g, centavos, paraOutros) => (cadaUm(g) || foraPacote(g) || !vendaPublicada()) ? centavos : C.inteiros(centavos * fatorVenda()); // múltiplo de R$ 5
 // Total de um item como o grupo vê: a SOMA das partes já arredondadas (assim 5 pessoas × R$ 50 = R$ 250 e a conta bate;
 // arredondar o total à parte dava R$ 260 com partes de R$ 50).
+/* Pacote como o grupo vê: cada pessoa vê o valor da viagem (preço por vaga × peso) repartido entre os itens do pacote em que ela vai,
+   na proporção do custo real da parte dela. Assim a lista de cada um soma exatamente o valor da viagem, e o custo de quem não paga
+   + a margem ficam dentro dos itens. Todo mundo é mostrado como pagante (ninguém vê quem não paga). A cobrança real continua em devidoDe. */
+const devidoVitrine = pid => { const vd = (S.dados.viagem.plano || {}).venda, p = pessoa(pid); return vd && vd.porVaga && p ? C.devidoPessoa(vd.porVaga, p.peso) : 0; };
+const ehDoPacote = g => g && g.roteiro === 'sim' && !cadaUm(g) && !foraPacote(g);
+let _pacote = null, _pacoteChave = null;
+function pacoteVitrine() {
+  if (!vendaPublicada()) return null;
+  const chave = S.dados; // recalcula quando os dados mudam (novo objeto) ou a cada render
+  if (_pacote && _pacoteChave === chave) return _pacote;
+  const its = semAlternativas(itensRoteiro()).filter(ehDoPacote);
+  const divs = new Map(its.map(g => [g.id, C.dividir(g, S.dados)]));
+  const por = {};
+  (S.dados.pessoas || []).forEach(p => {
+    const m = new Map(), dev = devidoVitrine(p.id);
+    const meus = its.filter(g => (divs.get(g.id)[p.id] || 0) > 0);
+    const base = meus.reduce((s, g) => s + divs.get(g.id)[p.id], 0);
+    if (dev > 0 && base > 0) {
+      meus.forEach(g => m.set(g.id, C.inteiros(divs.get(g.id)[p.id] * dev / base)));
+      const dif = dev - meus.reduce((s, g) => s + m.get(g.id), 0);
+      if (dif) { const maior = meus.slice().sort((a, b) => m.get(b.id) - m.get(a.id))[0]; m.set(maior.id, m.get(maior.id) + dif); }
+    }
+    por[p.id] = m;
+  });
+  _pacote = { por, ids: new Set(its.map(g => g.id)) }; _pacoteChave = chave;
+  return _pacote;
+}
+// Parte de uma pessoa num item, como o grupo vê (com o preço publicado e item do pacote); senão, null.
+const vitP = (g, pid) => { const pc = pacoteVitrine(); return pc && pc.ids.has(g.id) ? (pc.por[pid] && pc.por[pid].get(g.id)) || 0 : null; };
 const totalVit = (g, paraOutros) => {
   if (cadaUm(g) || foraPacote(g) || !vendaPublicada()) return C.totalItem(g, S.dados);
+  const pc = pacoteVitrine();
+  if (pc && pc.ids.has(g.id)) return Object.keys(pc.por).reduce((s, k) => s + (pc.por[k].get(g.id) || 0), 0);
   const d = C.dividir(g, S.dados), ks = Object.keys(d);
   return ks.length ? ks.reduce((s, k) => s + C.inteiros(d[k] * fatorVenda()), 0) : C.inteiros(C.totalItem(g, S.dados) * fatorVenda());
 };
+// Parte de uma pessoa num item: pacote (vitrine) quando houver; senão o valor de sempre.
+const parteVit = (g, pid, centavos) => { const v = vitP(g, pid); return v == null ? vit(g, centavos) : v; };
 const vendaPublicada = () => !!((S.dados.viagem.plano || {}).venda || {}).porVaga;
 
 /* ---------- Hospedagem e outros pagamentos à parte (itens fora do pacote), com o "total estimado por pessoa" ----------
@@ -1824,7 +1849,7 @@ function exportarAgenda() {
     const cat = C.CAT[g.categoria] || C.CAT.outros, parte = C.dividir(g, S.dados)[eu];
     const i = g.info || {};
     const desc = [g.descricao + ' · ' + v.nome,
-      cadaUm(g) ? 'Valor: ' + brl(C.centavos(g.valor)) + ' por pessoa (pago na hora)' : 'Valor total: ' + brl(totalVit(g)) + (parte ? ' · sua parte: ' + brl(vit(g, parte)) : ''),
+      cadaUm(g) ? 'Valor: ' + brl(C.centavos(g.valor)) + ' por pessoa (pago na hora)' : 'Valor total: ' + brl(totalVit(g)) + (parte ? ' · sua parte: ' + brl(parteVit(g, eu, parte)) : ''),
       i.checkin ? 'Check-in a partir de ' + i.checkin : '', i.checkout ? 'Check-out até ' + i.checkout : '',
       i.wifi ? 'Wi-Fi: ' + i.wifi + (i.wifiSenha ? ' / senha: ' + i.wifiSenha : '') : '', i.contato ? 'Contato: ' + i.contato : '',
       i.instrucoes || '', g.obs || '', g.link ? 'Reserva: ' + g.link : '', 'App: ' + linkConvite()].filter(Boolean).join('\n');
@@ -2046,7 +2071,7 @@ function telaRoteiro() {
           <div class="peq" style="margin-top:6px">💰 ${cadaUm(g)
             ? (() => { const ent = Math.round(C.totalItem(g, S.dados) / C.centavos(g.valor)); return `<b class="num">${brl(C.centavos(g.valor))} por pessoa</b>, pago na hora · ${ent} ${ent === 1 ? 'entrada' : 'entradas'} (≈ ${brl(C.totalItem(g, S.dados))} no grupo)${partes[S.eu] ? ` · <b>você leva ${brl(partes[S.eu])}</b>` : ''}`; })()
             : ops && !n ? `<b class="num">${brl(totalVit(g))}</b> no total · ≈ <b class="num">${brl(Math.round(totalVit(g) / Math.max(1, S.dados.pessoas.length)))}</b> por pessoa se todos forem · ninguém escolheu ainda`
-            : `<b class="num">${brl(totalVit(g))}</b> para ${n} ${n === 1 ? 'pessoa' : 'pessoas'}${g.modo === 'porPessoa' ? ` (${brl(vit(g, C.centavos(g.valor)))} por pessoa)` : ''}${partes[S.eu] ? ` · <b>sua parte ${brl(vit(g, partes[S.eu]))}</b>` : ''}${ops && n ? ` · ≈ ${brl(Math.round(totalVit(g) / n))} por pessoa` : ''}`}</div>
+            : `<b class="num">${brl(totalVit(g))}</b> para ${n} ${n === 1 ? 'pessoa' : 'pessoas'}${g.modo === 'porPessoa' ? ` (${brl(vit(g, C.centavos(g.valor)))} por pessoa)` : ''}${partes[S.eu] ? ` · <b>sua parte ${brl(parteVit(g, S.eu, partes[S.eu]))}</b>` : ''}${ops && n ? ` · ≈ ${brl(Math.round(totalVit(g) / n))} por pessoa` : ''}`}</div>
           ${fora.length && !ops ? `<div class="peq mut">Não vão: ${esc(fora.join(', '))}</div>` : ''}
           ${ops ? `<div class="peq mut">👥 ${n ? S.dados.pessoas.filter(p => !(g.ausentes || []).includes(p.id)).map(p => esc(p.nome.split(' ')[0])).join(', ') + (n === 1 ? ' escolheu' : ' escolheram') : 'Ninguém escolheu essa opção ainda'}</div>` : ''}
         </div>
@@ -2145,7 +2170,7 @@ async function avisarPorEmail() {
   if (!confirm(`Mandar o roteiro por e-mail para ${comEmail.length} ${comEmail.length === 1 ? 'pessoa' : 'pessoas'} (${comEmail.map(p => p.nome.split(' ')[0]).join(', ')})?`)) return;
   const itens = itensRoteiro(), partes = C.partes(S.dados, () => true);
   const mensagens = comEmail.map(p => {
-    const linhas = itens.map(g => { const pt = C.dividir(g, S.dados)[p.id]; return `<li><b>${esc(g.descricao)}</b><br>${esc(quando(g))}${g.local ? '<br>📍 ' + esc(g.local) : ''}<br>${cadaUm(g) ? `${brl(C.centavos(g.valor))} por pessoa, cada um paga o seu na hora · ${pt ? 'leve <b>' + brl(pt) + '</b>' : 'você não vai'}` : `Total ${brl(totalVit(g, true))} · ${pt ? 'sua parte <b>' + brl(vit(g, pt, true)) + '</b>' : 'você não vai'}${pago(g) ? '' : ' (a pagar)'}`}</li>`; }).join('');
+    const linhas = itens.map(g => { const pt = C.dividir(g, S.dados)[p.id]; return `<li><b>${esc(g.descricao)}</b><br>${esc(quando(g))}${g.local ? '<br>📍 ' + esc(g.local) : ''}<br>${cadaUm(g) ? `${brl(C.centavos(g.valor))} por pessoa, cada um paga o seu na hora · ${pt ? 'leve <b>' + brl(pt) + '</b>' : 'você não vai'}` : `Total ${brl(totalVit(g, true))} · ${pt ? 'sua parte <b>' + brl(parteVit(g, p.id, pt)) + '</b>' : 'você não vai'}${pago(g) ? '' : ' (a pagar)'}`}</li>`; }).join('');
     return { pessoa: p.id, assunto: '🗺️ Roteiro: ' + S.dados.viagem.nome, titulo: 'Oi, ' + p.nome.split(' ')[0] + '! Este é o roteiro da viagem',
       html: `<ul>${linhas}</ul><p>${vendaPublicada() ? `Valor da sua viagem: <b>${brl(devidoDe(p.id))}</b>.` : `Sua parte na viagem até agora: <b>${brl(partes[p.id] || 0)}</b>.`}</p><p>No app você marca se vai em cada passeio.</p>` };
   });
@@ -2322,13 +2347,13 @@ function telaResumo() {
   const val = g => totalVit(g);
   const total = todos.reduce((s, g) => s + val(g), 0);
   if (!total) { $('#tela').innerHTML = `<div class="cartao vazio"><b>📊</b>O resumo aparece assim que houver algo com valor no roteiro ou nos gastos.</div>`; return; }
-  const jaPagoV = g => vit(g, C.jaPagoItem(g, S.dados));
+  const jaPagoV = g => { const t = C.totalItem(g, S.dados); return t > 0 ? Math.round(val(g) * C.jaPagoItem(g, S.dados) / t) : 0; };
   const jaPago = todos.filter(g => !foraPacote(g)).reduce((s, g) => s + jaPagoV(g), 0);
   const aPagar = todos.filter(g => g.status === 'previsto' && !foraPacote(g)).reduce((s, g) => s + val(g) - jaPagoV(g), 0);
   const naHora = todos.filter(g => cadaUm(g) || foraPacote(g)).reduce((s, g) => s + val(g), 0);
   const sal = C.saldos(S.dados), partes = {};
   S.dados.pessoas.forEach(p => { partes[p.id] = 0; });
-  todos.forEach(g => { const ps = C.dividir(g, S.dados); Object.keys(ps).forEach(k => { if (k in partes) partes[k] += vit(g, ps[k]); }); });
+  todos.forEach(g => { const ps = C.dividir(g, S.dados); Object.keys(ps).forEach(k => { if (k in partes) partes[k] += parteVit(g, k, ps[k]); }); });
   const porCat = {}, porDia = {};
   todos.forEach(g => { const v = val(g); porCat[g.categoria] = (porCat[g.categoria] || 0) + v; if (g.data) porDia[g.data] = (porDia[g.data] || 0) + v; });
   const cats = Object.entries(porCat).filter(c => c[1] > 0).sort((a, b) => b[1] - a[1]);
@@ -2359,7 +2384,7 @@ function telaResumo() {
     <div class="peq" style="opacity:.9">${esc(S.dados.viagem.nome)} · ${vendaPublicada() ? 'total do roteiro' : 'custo total'}</div>
     <div style="font-size:2.1rem;font-weight:800" class="num">${brl(total)}</div>
     <div class="peq" style="opacity:.9">${todos.length} lançamentos · ${S.dados.pessoas.length} pessoas · ${vendaPublicada() ? `valor da viagem <b>${brl(((S.dados.viagem.plano || {}).venda || {}).porVaga)}</b> por pessoa` : `≈ ${brl(Math.round(total / n))} por pessoa`}</div>
-    ${vendaPublicada() && souOrg() ? `<div class="peq" style="opacity:.75">Total ${brl(total)}${naHora ? ` − ${brl(naHora)} que cada um paga na hora/fora do pacote` : ''} = pacote ${brl(total - naHora)} ÷ ${fmtNum(vagasDoGrupo())} ${vagasDoGrupo() === 1 ? 'vaga' : 'vagas'} ≈ ${brl(Math.round((total - naHora) / Math.max(1, vagasDoGrupo())))} (o valor da viagem é arredondado para cima em múltiplos de R$ 5)</div>` : ''}
+    ${vendaPublicada() && souOrg() ? (() => { const rec = S.dados.pessoas.reduce((s, p) => s + devidoDe(p.id), 0), cus = custoDoRoteiro(); return `<div class="peq" style="opacity:.75">🔒 Só você vê: você recebe ${brl(rec)} (quem paga) · custo do pacote ${brl(cus)} · sobra ${brl(rec - cus)}</div>`; })() : ''}
   </div>
   <div class="cartao" style="padding:12px 16px">
     <div class="linha-bar" style="margin:0"><div class="barra" style="height:14px;display:flex">

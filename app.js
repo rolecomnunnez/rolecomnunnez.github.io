@@ -2370,6 +2370,8 @@ function telaResumo() {
   const maxPP = Math.max(1, ...porPessoa.map(p => partes[p.id] || 0));
   // Números da viagem (automático): km do roteiro, dias e totais por grupo de gasto.
   const rk = kmRoteiro(); buscarRotas(rk.trechos);
+  // Participante com o preço publicado: só valores por pessoa (os totais do grupo não batem com o custo real e não interessam a ele).
+  const grp = comoGrupo() && vendaPublicada();
   const v = S.dados.viagem;
   const dias = v.inicio && v.fim ? Math.round((new Date(v.fim + 'T12:00') - new Date(v.inicio + 'T12:00')) / 864e5) + 1 : 0;
   const GRUPOS = [['🏠', 'Hospedagem', ['hospedagem']], ['🚗', 'Transporte', ['aluguel', 'combustivel', 'pedagio', 'estacionamento', 'desgaste']],
@@ -2380,28 +2382,28 @@ function telaResumo() {
   const linhaNum = (ic, rot, val, sub) => `<li><span class="ico">${ic}</span><span class="meio"><b>${rot}</b>${sub ? `<small>${sub}</small>` : ''}</span><span class="num"><b>${val}</b></span></li>`;
   const numeros = `<div class="cartao" style="padding:6px 16px"><h2 style="margin:10px 0 2px">🧭 Números da viagem</h2><ul class="lista">
     ${rk.n ? linhaNum('🛣️', 'Km rodados', rk.ok ? fmtNum(Math.round(rk.km)) + ' km' : '…', rk.ok ? `≈ ${fmtDur(rk.min)} dirigindo, pelo roteiro${rk.ok < rk.n ? ' (faltam trechos)' : ''}${transp && rk.km ? ' · transporte ≈ ' + brl(Math.round(transp / rk.km)) + ' por km' : ''}` : 'calculando pelo roteiro…') : ''}
-    ${dias ? linhaNum('📅', `Média por dia (${dias} ${dias === 1 ? 'dia' : 'dias'})`, `<span class="mut">${brl(Math.round(total / dias))}</span>`, `grupo todo, não entra na soma · ≈ ${brl(Math.round(total / dias / n))} por pessoa por dia`) : ''}
-    ${porGrupo.map(([ic, nm, val]) => linhaNum(ic, nm, brl(val), `≈ ${brl(Math.round(val / n))} por pessoa · ${Math.round(val / total * 100)}% do total`)).join('')}
+    ${dias ? (grp ? linhaNum('📅', `Média por dia (${dias} ${dias === 1 ? 'dia' : 'dias'})`, `<span class="mut">${brl(Math.round((partes[S.eu] || 0) / dias))}</span>`, 'a sua parte por dia') : linhaNum('📅', `Média por dia (${dias} ${dias === 1 ? 'dia' : 'dias'})`, `<span class="mut">${brl(Math.round(total / dias))}</span>`, `grupo todo, não entra na soma · ≈ ${brl(Math.round(total / dias / n))} por pessoa por dia`)) : ''}
+    ${porGrupo.map(([ic, nm, val]) => grp ? linhaNum(ic, nm, brl(Math.round(val / n)), `por pessoa · ${Math.round(val / total * 100)}% do total`) : linhaNum(ic, nm, brl(val), `≈ ${brl(Math.round(val / n))} por pessoa · ${Math.round(val / total * 100)}% do total`)).join('')}
   </ul></div>`;
   const html = `
   <div class="cartao destaque" style="text-align:center">
-    <div class="peq" style="opacity:.9">${esc(S.dados.viagem.nome)} · ${vendaPublicada() ? 'total do roteiro' : 'custo total'}</div>
-    <div style="font-size:2.1rem;font-weight:800" class="num">${brl(total)}</div>
+    <div class="peq" style="opacity:.9">${esc(S.dados.viagem.nome)} · ${grp ? 'sua viagem (pacote + à parte)' : vendaPublicada() ? 'total do roteiro' : 'custo total'}</div>
+    <div style="font-size:2.1rem;font-weight:800" class="num">${brl(grp ? (partes[S.eu] || 0) : total)}</div>
     <div class="peq" style="opacity:.9">${todos.length} lançamentos · ${S.dados.pessoas.length} pessoas · ${vendaPublicada() ? `valor da viagem <b>${brl(((S.dados.viagem.plano || {}).venda || {}).porVaga)}</b> por pessoa` : `≈ ${brl(Math.round(total / n))} por pessoa`}</div>
     ${vendaPublicada() && souOrg() ? (() => { const rec = S.dados.pessoas.reduce((s, p) => s + devidoDe(p.id), 0), cus = custoDoRoteiro(); return `<div class="peq" style="opacity:.75">🔒 Só você vê: você recebe ${brl(rec)} (quem paga) · custo do pacote ${brl(cus)} · sobra ${brl(rec - cus)}</div>`; })() : ''}
   </div>
-  <div class="cartao" style="padding:12px 16px">
+  ${grp ? '' : `<div class="cartao" style="padding:12px 16px">
     <div class="linha-bar" style="margin:0"><div class="barra" style="height:14px;display:flex">
       <i style="width:${jaPago / total * 100}%;border-radius:0;background:var(--pos)"></i><i style="width:${aPagar / total * 100}%;border-radius:0;background:var(--laranja)"></i><i style="width:${naHora / total * 100}%;border-radius:0;background:var(--azul)"></i></div></div>
     <div class="peq" style="display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px">
       <span><b style="color:var(--pos)">●</b> Já pago ${brl(jaPago)}</span><span><b style="color:var(--laranja)">●</b> A pagar ${brl(aPagar)}</span><span><b style="color:var(--azul)">●</b> Cada um paga na hora ${brl(naHora)}</span></div>
-  </div>
+  </div>`}
   ${numeros}
-  <div class="placar">
+  <div class="placar ${grp ? 'oculto' : ''}">
     <div class="cartao"><small>Dia mais caro</small><strong style="font-size:1rem">${diaTop ? fmtDia(diaTop[0]) : '—'}</strong><div class="num mut peq">${diaTop ? brl(diaTop[1]) : ''}</div></div>
     <div class="cartao"><small>Maior item</small><strong style="font-size:1rem">${esc(maior.descricao || C.CAT[maior.categoria]?.nome)}</strong><div class="num mut peq">${brl(val(maior))}</div></div>
   </div>
-  <div class="cartao"><h2>Para onde vai o dinheiro</h2>${cats.map(([c, v]) => { const k = C.CAT[c] || C.CAT.outros; return `<div class="linha-bar"><div class="t"><span>${k.icone} ${k.nome}</span><span class="num">${brl(v)} <span class="mut">${Math.round(v / total * 100)}%</span></span></div><div class="barra"><i style="width:${v / cats[0][1] * 100}%"></i></div></div>`; }).join('')}</div>
+  <div class="cartao"><h2>Para onde vai o dinheiro</h2>${cats.map(([c, v]) => { const k = C.CAT[c] || C.CAT.outros; return `<div class="linha-bar"><div class="t"><span>${k.icone} ${k.nome}</span><span class="num">${grp ? '' : brl(v) + ' '}<span class="mut">${Math.round(v / total * 100)}%</span></span></div><div class="barra"><i style="width:${v / cats[0][1] * 100}%"></i></div></div>`; }).join('')}</div>
   <div class="cartao"><h2>Quanto fica para cada um</h2>${porPessoa.map(p => `<div class="linha-bar"><div class="t"><span>${esc(p.nome)}${p.id === S.eu ? ' (você)' : ''}</span><span class="num">${brl(partes[p.id] || 0)}</span></div><div class="barra"><i style="width:${(partes[p.id] || 0) / maxPP * 100}%"></i></div></div>`).join('')}</div>
   ${(() => { const ag = saldoAgrupado(); return `<div class="cartao"><h2>Situação de cada um (só o que já foi pago)</h2><ul class="lista">${S.dados.pessoas.map(p => {
       const r = responsavel(p.id), s = ag.agrupado[p.id] || 0;
@@ -2415,8 +2417,9 @@ function telaResumo() {
   $('#relatorio-pdf').onclick = relatorioPDF;
   $('#compartilhar-resumo').onclick = () => {
     const tr = saldoAgrupado().transf;
-    const txt = `🧳 ${S.dados.viagem.nome}\nCusto total: ${brl(total)} (≈ ${brl(Math.round(total / n))} por pessoa)\n${rk.ok ? `🛣️ ${fmtNum(Math.round(rk.km))} km rodados\n` : ''}Já pago ${brl(jaPago)} · a pagar ${brl(aPagar)} · na hora ${brl(naHora)}\n\n` +
-      cats.map(([c, v]) => `${(C.CAT[c] || C.CAT.outros).icone} ${(C.CAT[c] || C.CAT.outros).nome}: ${brl(v)}`).join('\n') +
+    const txt = (grp ? `🧳 ${S.dados.viagem.nome}\nValor da viagem: ${brl(devidoVitrine(S.eu))} por pessoa\n${rk.ok ? `🛣️ ${fmtNum(Math.round(rk.km))} km rodados\n` : ''}\n`
+      : `🧳 ${S.dados.viagem.nome}\nCusto total: ${brl(total)} (≈ ${brl(Math.round(total / n))} por pessoa)\n${rk.ok ? `🛣️ ${fmtNum(Math.round(rk.km))} km rodados\n` : ''}Já pago ${brl(jaPago)} · a pagar ${brl(aPagar)} · na hora ${brl(naHora)}\n\n`) +
+      cats.map(([c, v]) => `${(C.CAT[c] || C.CAT.outros).icone} ${(C.CAT[c] || C.CAT.outros).nome}: ${grp ? Math.round(v / total * 100) + '%' : brl(v)}`).join('\n') +
       (tr.length ? `\n\n💸 Acerto:\n` + tr.map(t => `${nome(t.de)} → ${nome(t.para)}: ${brl(t.valor)}`).join('\n') : '\n\n🎉 Tudo acertado!');
     compartilhar(txt);
   };

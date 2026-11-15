@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v68'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v69'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -1130,21 +1130,24 @@ function autoCusto() {
 const itensDaCobranca = c => Array.isArray(c.itens) ? c.itens : (c.item ? [c.item] : []);
 const nomesItens = c => itensDaCobranca(c).map(i => ((S.dados.gastos || []).find(g => g.id === i) || {}).descricao).filter(Boolean);
 const cobrancas = () => ((S.dados.viagem.plano || {}).cobrancas || []).slice().sort((a, b) => (a.data || '9999').localeCompare(b.data || '9999') || String(a.id).localeCompare(String(b.id)));
+// Cobrança "à parte": todos os itens marcados estão fora do pacote (ex.: Airbnb pago no cartão). Cobra o valor real e não entra no Valor da viagem;
+// quem já pagou fica em plano.pagoCob = { idDaCobranca: [ids das pessoas] }.
+const cobrancaAParte = c => { const gs = itensDaCobranca(c).map(i => (S.dados.gastos || []).find(x => x.id === i)).filter(Boolean); return gs.length > 0 && gs.every(foraPacote); };
 const parteVenda = (g, pid) => (cadaUm(g) || foraPacote(g)) ? 0 : C.inteiros((C.dividir(g, S.dados)[pid] || 0) * fatorVenda());
 function valorCobranca(c, pid) {
   const p = pessoa(pid), vd = (S.dados.viagem.plano || {}).venda;
   if (!p || !vd || !vd.porVaga) return 0;
   const peso = Number(p.peso) > 0 ? Number(p.peso) : 1, n = Number(c.valor) || 0;
   const gs = itensDaCobranca(c).map(i => (S.dados.gastos || []).find(x => x.id === i)).filter(Boolean);
-  const comItens = itensDaCobranca(c).length > 0, parte = gs.reduce((s, g) => s + parteVenda(g, pid), 0);
+  const comItens = itensDaCobranca(c).length > 0, vai = gs.some(g => (C.dividir(g, S.dados)[pid] || 0) > 0);
   if (isento(pid)) return 0;
-  if (c.tipo === 'rs') return (comItens && !parte) ? 0 : C.centavos(n) * peso; // com itens: só para quem vai em algum deles (cobrado uma vez)
+  if (c.tipo === 'rs') return (comItens && !vai) ? 0 : C.centavos(n) * peso; // com itens: só para quem vai em algum deles (cobrado uma vez)
   if (comItens) {
     // % do que o LOCAL pede (preço real, sem a margem), dividido entre quem paga o pacote:
     // o total pedido é o % do valor de todos que vão (inclusive quem não paga); a parte de quem não paga é repartida entre os pagantes.
     const pagantes = (S.dados.pessoas || []).filter(x => !isento(x.id)).map(x => x.id);
     let tot = 0;
-    gs.filter(g => !cadaUm(g) && !foraPacote(g)).forEach(g => {
+    gs.filter(g => !cadaUm(g)).forEach(g => { // inclui itens fora do pacote (cobrança à parte, pelo valor real)
       const d = C.dividir(g, S.dados), W = pagantes.reduce((s, id) => s + (d[id] || 0), 0);
       if (W > 0 && d[pid]) tot += C.totalItem(g, S.dados) * (d[pid] / W);
     });
@@ -1162,32 +1165,38 @@ function agendaDe(ids) {
     const d = devidoDe(pid); devido += d;
     let falta = d, r = (pl.recebido || {})[pid] || 0; recebido += r;
     cs.forEach(c => {
+      if (cobrancaAParte(c)) { // à parte: valor real, fora do que a pessoa deve do pacote; "pagou" marcado pelo organizador
+        const v = valorCobranca(c, pid), pg = ((pl.pagoCob || {})[c.id] || []).includes(pid) ? v : 0;
+        const m = mapa[c.id] || (mapa[c.id] = { c, valor: 0, pago: 0, aparte: true }); m.valor += v; m.pago += pg;
+        return;
+      }
       const v = Math.min(valorCobranca(c, pid), falta); falta -= v;
       const pg = Math.min(r, v); r -= pg;
       const m = mapa[c.id] || (mapa[c.id] = { c, valor: 0, pago: 0 }); m.valor += v; m.pago += pg;
     });
   });
   const linhas = cs.map(c => mapa[c.id]).filter(l => l && l.valor > 0).map(l => ({ ...l, ok: l.pago >= l.valor, atrasado: l.pago < l.valor && !!l.c.data && l.c.data < hoje() }));
-  const antecip = linhas.reduce((s, l) => s + l.valor, 0);
+  const antecip = linhas.filter(l => !l.aparte).reduce((s, l) => s + l.valor, 0);
   return { linhas, devido, recebido, restante: Math.max(0, devido - antecip), vencido: linhas.filter(l => l.atrasado).reduce((s, l) => s + l.valor - l.pago, 0) };
 }
 function htmlAgenda(ag) {
   if (!ag || !ag.linhas.length) return '';
-  const lin = ag.linhas.map(l => `<li><span class="ico">${l.ok ? '✅' : l.atrasado ? '⚠️' : '⏳'}</span><span class="meio"><b>${esc(l.c.desc || 'Cobrança')}</b>${nomesItens(l.c).length ? `<small style="white-space:normal">🗺️ Para: ${esc(nomesItens(l.c).join(' + '))}</small>` : '<small style="white-space:normal">🗺️ Para: a viagem toda</small>'}<small>${l.c.data ? 'até ' + fmtData(l.c.data) : 'sem data'}${l.pago && !l.ok ? ' · já pago ' + brl(l.pago) : ''}${l.atrasado ? ' · <span class="neg">atrasado</span>' : ''}</small></span><span class="num"><b>${brl(l.valor)}</b></span></li>`).join('');
+  const lin = ag.linhas.map(l => `<li><span class="ico">${l.ok ? '✅' : l.atrasado ? '⚠️' : '⏳'}</span><span class="meio"><b>${esc(l.c.desc || 'Cobrança')}</b>${nomesItens(l.c).length ? `<small style="white-space:normal">🗺️ Para: ${esc(nomesItens(l.c).join(' + '))}</small>` : '<small style="white-space:normal">🗺️ Para: a viagem toda</small>'}<small>${l.c.data ? 'até ' + fmtData(l.c.data) : 'sem data'}${l.aparte ? ' · cobrança à parte (fora do valor da viagem)' : ''}${l.pago && !l.ok ? ' · já pago ' + brl(l.pago) : ''}${l.atrasado ? ' · <span class="neg">atrasado</span>' : ''}</small></span><span class="num"><b>${brl(l.valor)}</b></span></li>`).join('');
   return `<ul class="lista">${lin}</ul>${ag.restante ? `<div class="peq" style="display:flex;justify-content:space-between;padding:8px 0"><span>Restante (até a viagem)</span><span class="num">${brl(ag.restante)}</span></div>` : ''}`;
 }
 const regraCobranca = c => {
   const nm = nomesItens(c);
-  return (c.tipo === 'rs' ? `R$ ${fmtNum(c.valor)} por vaga` : `${fmtNum(c.valor)}% ${nm.length ? 'do preço do local, entre os pagantes' : 'do valor da viagem'}`) + (nm.length ? ' · para: ' + nm.join(' + ') : '');
+  return (c.tipo === 'rs' ? `R$ ${fmtNum(c.valor)} por vaga` : `${fmtNum(c.valor)}% ${nm.length ? 'do preço do local, entre os pagantes' : 'do valor da viagem'}`) + (nm.length ? ' · para: ' + nm.join(' + ') : '') + (cobrancaAParte(c) ? ' · à parte (fora do pacote)' : '');
 };
 
 function formCobranca(c) {
   const novo = !c; c = c || { id: uid('C'), desc: '', tipo: 'pct', valor: '', data: '', itens: [] };
-  const its = itensRoteiro().filter(g => !cadaUm(g) && !foraPacote(g));
+  const its = itensRoteiro().filter(g => !cadaUm(g));
+  const pagouAntes = ((S.dados.viagem.plano || {}).pagoCob || {})[c.id] || [];
   const f = janela(novo ? 'Nova cobrança antecipada' : 'Cobrança antecipada', `
     <span style="display:block;font-size:.85rem;color:var(--mut);font-weight:600;margin-bottom:2px">Quais itens do roteiro estão pedindo esse adiantamento?</span>
     <div style="max-height:200px;overflow:auto;border:1px solid var(--lin);border-radius:12px;padding:6px 10px;margin-bottom:10px">
-      ${its.length ? its.map(g => `<label class="check"><input type="checkbox" name="itens" value="${esc(g.id)}" ${itensDaCobranca(c).includes(g.id) ? 'checked' : ''}>${esc(g.descricao)}${g.data ? ' · ' + esc(fmtData(g.data)) : ''}</label>`).join('') : '<p class="mut peq">Nenhum item no roteiro ainda.</p>'}
+      ${its.length ? its.map(g => `<label class="check"><input type="checkbox" name="itens" value="${esc(g.id)}" ${foraPacote(g) ? 'data-fora="1"' : ''} ${itensDaCobranca(c).includes(g.id) ? 'checked' : ''}>${esc(g.descricao)}${g.data ? ' · ' + esc(fmtData(g.data)) : ''}${foraPacote(g) ? ' <span class="mut">(fora do pacote)</span>' : ''}</label>`).join('') : '<p class="mut peq">Nenhum item no roteiro ainda.</p>'}
     </div>
     <p class="dica" style="margin-top:-4px">Marque um ou mais (ex.: os 2 passeios que o mesmo local reservou). Sem marcar nenhum, vale para a viagem toda.</p>
     <div class="grade2">
@@ -1195,11 +1204,15 @@ function formCobranca(c) {
       <label class="cp"><span id="cob-rot">${c.tipo === 'rs' ? 'Valor por vaga (R$)' : 'Percentual (%)'}</span><input type="text" inputmode="decimal" name="valor" required value="${esc(fmtNum(c.valor))}" placeholder="Ex.: 30"></label>
     </div>
     <p class="dica" id="cob-dica" style="margin-top:-6px"></p>
+    <p class="aviso oculto" id="cob-aparte">Itens fora do pacote são cobrados <b>à parte</b>, pelo valor real (sem margem), e <b>não entram</b> no Valor da viagem. Depois de salvar, abra esta cobrança de novo para marcar quem já pagou.</p>
     <label class="cp"><span>Pagar até</span><input type="date" name="data" value="${esc(c.data)}"></label>
     <label class="cp"><span>Nome (opcional)</span><input type="text" name="desc" value="${esc(c.desc)}" placeholder="Ex.: Sinal da pousada. Se vazio, usa o nome do item." autocapitalize="sentences"></label>
-    <p class="dica">Cada pessoa vê o valor dela no Acerto. O que ela já pagou (Recebimentos) vai abatendo as cobranças por ordem de data. Casal paga o dobro.</p>`,
+    ${!novo && cobrancaAParte(c) ? `<div class="titulo-sec" style="margin-top:6px">✅ Quem já pagou (cobrança à parte)</div>${S.dados.pessoas.filter(p => valorCobranca(c, p.id) > 0).map(p => `<label class="check"><input type="checkbox" name="pagou" value="${esc(p.id)}" ${pagouAntes.includes(p.id) ? 'checked' : ''}>${esc(p.nome)} · ${brl(valorCobranca(c, p.id))}</label>`).join('') || '<p class="mut peq">Ninguém tem valor nesta cobrança ainda (publique o preço e marque quem vai).</p>'}` : ''}
+    <p class="dica">Cada pessoa vê o valor dela no Acerto. O que ela já pagou do pacote (Recebimentos) vai abatendo as cobranças do pacote por ordem de data. Casal paga o dobro.</p>`,
     `${novo ? '' : '<button class="btn perigo" value="del" formnovalidate>Excluir</button>'}<button class="btn" value="x" formnovalidate>Cancelar</button><button class="btn pri" value="ok">Salvar</button>`);
   const ajustaCob = () => {
+    const marcados = [...f.querySelectorAll('[name=itens]:checked')];
+    $('#cob-aparte', f).classList.toggle('oculto', !(marcados.length && marcados.every(x => x.dataset.fora)));
     const rs = f.tipo.value === 'rs', n = f.querySelectorAll('[name=itens]:checked').length, tem = n > 0, varios = n > 1;
     $('#cob-rot', f).textContent = rs ? 'Valor por vaga (R$)' : 'Percentual (%)';
     $('#cob-dica', f).textContent = rs ? (tem ? 'Valor fixo por vaga (uma vez só), para quem vai em algum dos itens marcados.' : 'Valor fixo por vaga para todos.')
@@ -1214,7 +1227,11 @@ function formCobranca(c) {
     if (!(valor > 0) || (tipo === 'pct' && valor > 100)) { e.preventDefault(); return toast(tipo === 'pct' ? 'Informe um percentual entre 1 e 100.' : 'Informe o valor por vaga.'); }
     const ids = fd.getAll('itens'), nomes = ids.map(i => ((S.dados.gastos || []).find(x => x.id === i) || {}).descricao).filter(Boolean);
     const item = { id: c.id, desc: fraseNormal(fd.get('desc')) || (nomes.length ? 'Reserva: ' + nomes.join(' + ') : 'Pagamento antecipado'), tipo, valor, data: fd.get('data') || '', itens: ids };
-    salvarPlano(p => { p.cobrancas = [...(p.cobrancas || []).filter(x => x.id !== c.id), item]; });
+    const temPagou = !!f.querySelector('[name=pagou]');
+    salvarPlano(p => {
+      p.cobrancas = [...(p.cobrancas || []).filter(x => x.id !== c.id), item];
+      if (temPagou) p.pagoCob = { ...(p.pagoCob || {}), [c.id]: fd.getAll('pagou') };
+    });
     toast('Cobrança salva ✓');
   };
 }
@@ -1274,7 +1291,7 @@ function telaPreco() {
     const cs = cobrancas(), totalCob = c => ps.reduce((s, p) => s + valorCobranca(c, p.id), 0);
     html += `<div class="titulo-sec">📅 Cobranças antecipadas</div><div class="cartao" style="padding:4px 16px">
       <p class="mut peq" style="margin:10px 0 0">Reservas e sinais que o grupo paga antes da viagem (o que o local pedir). Cada pessoa vê o valor dela no Acerto, e o que já pagou vai abatendo.</p>
-      ${cs.length ? `<ul class="lista">${cs.map(c => `<li class="clica" data-cob="${esc(c.id)}"><span class="ico">📅</span><span class="meio"><b>${esc(c.desc)}</b><small>${esc(regraCobranca(c))} · ${c.data ? 'até ' + fmtData(c.data) : 'sem data'}</small></span><span class="num"><b>${brl(totalCob(c))}</b></span></li>`).join('')}</ul>` : ''}
+      ${cs.length ? `<ul class="lista">${cs.map(c => `<li class="clica" data-cob="${esc(c.id)}"><span class="ico">📅</span><span class="meio"><b>${esc(c.desc)}</b><small style="white-space:normal">${esc(regraCobranca(c))} · ${c.data ? 'até ' + fmtData(c.data) : 'sem data'}${cobrancaAParte(c) ? ` · recebido ${brl(((pl.pagoCob || {})[c.id] || []).reduce((s, pid) => s + valorCobranca(c, pid), 0))} de ${brl(totalCob(c))}` : ''}</small></span><span class="num"><b>${brl(totalCob(c))}</b></span></li>`).join('')}</ul>` : ''}
       <button class="btn lg sua" id="cob-add" style="margin:8px 0 12px">+ Adicionar cobrança</button></div>
     <div class="titulo-sec">Recebimentos</div><div class="cartao" style="padding:4px 16px">
       <p class="mut peq" style="margin:10px 0 0">Recebido ${brl(totalRec)} de ${brl(totalDev)}${totalDev > totalRec ? ` · falta ${brl(totalDev - totalRec)}` : ''}</p>

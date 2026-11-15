@@ -295,6 +295,11 @@ img,svg{max-width:100%}
 .btns>.btn{max-width:100%;white-space:normal}
 
 @media (max-width:380px){.cats{grid-template-columns:repeat(3,1fr)} .grade3{grid-template-columns:1fr 1fr} nav.abas button{font-size:.66rem}}
+/* "Ver como" (organizador olhando o app como outra pessoa): só leitura */
+body.ver-como #tela{pointer-events:none}
+#ver-como-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;position:sticky;top:0;z-index:30;background:#fff3cd;color:#5c4400;border:1px solid #f0d58a;border-radius:12px;padding:8px 12px;margin:8px 0;font-size:.9rem}
+#ver-como-bar select{flex:1;min-width:120px}
+@media (prefers-color-scheme:dark){#ver-como-bar{background:#3a3115;color:#f3e3aa;border-color:#6b5a1f}}
 </style>
 </head>
 <body>

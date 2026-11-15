@@ -1095,7 +1095,7 @@ function calcVenda(pr, isentos) {
   const vagas = Number(pr.vagas) > 0 ? Number(pr.vagas) : vagasDoGrupo(isentos);
   const r = C.precificar({ custo: pr.custo, margemTipo: pr.margemTipo === 'rs' ? 'rs' : 'pct', margem: pr.margem, vagas });
   if (!r.ok) return null;
-  return { r, vagas, venda: { porVaga: r.porVaga, fator: Math.round(r.receita / r.custo * 10000) / 10000, sinalPct: Number(pr.sinalPct) || 0, parcelas: Math.max(1, Math.floor(Number(pr.parcelas) || 1)), em: hoje() } };
+  return { r, vagas, venda: { porVaga: r.porVaga, vagas, fator: Math.round(r.receita / r.custo * 10000) / 10000, sinalPct: Number(pr.sinalPct) || 0, parcelas: Math.max(1, Math.floor(Number(pr.parcelas) || 1)), em: hoje() } };
 }
 const salvarPlano = mudar => { const pl = { ...(S.dados.viagem.plano || {}) }; mudar(pl); op({ op: 'viagem', dados: { plano: pl } }); };
 
@@ -1103,7 +1103,7 @@ const salvarPlano = mudar => { const pl = { ...(S.dados.viagem.plano || {}) }; m
 // O que cada um paga na hora (entrada, ingresso) fica como está. O organizador vê o valor real na própria tela.
 // Fator = o que o grupo paga no total (preço por vaga × vagas) ÷ custo real dos itens do pacote. Assim os itens mostrados sempre somam o valor da viagem.
 const fatorVenda = () => {
-  const vd = (S.dados.viagem.plano || {}).venda, custo = custoDoRoteiro(), cobrado = vd && vd.porVaga ? vd.porVaga * vagasDoGrupo() : 0;
+  const vd = (S.dados.viagem.plano || {}).venda, custo = custoDoRoteiro(), cobrado = vd && vd.porVaga ? vd.porVaga * (Number(vd.vagas) > 0 ? Number(vd.vagas) : vagasDoGrupo()) : 0;
   if (custo > 0 && cobrado > 0) return cobrado / custo;
   const f = Number((vd || {}).fator); return f > 0 ? f : 1;
 };

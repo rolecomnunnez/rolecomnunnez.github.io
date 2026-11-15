@@ -10,6 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const VERSAO_APP = 'v52'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -1082,8 +1083,8 @@ function valorCobranca(c, pid) {
   const p = pessoa(pid), vd = (S.dados.viagem.plano || {}).venda;
   if (!p || !vd || !vd.porVaga) return 0;
   const peso = Number(p.peso) > 0 ? Number(p.peso) : 1, n = Number(c.valor) || 0;
-  if (c.tipo === 'rs') return C.centavos(n) * peso;
   const g = c.item ? (S.dados.gastos || []).find(x => x.id === c.item) : null;
+  if (c.tipo === 'rs') return (c.item && !(g && parteVenda(g, pid))) ? 0 : C.centavos(n) * peso; // com item: só para quem vai nele
   const base = c.item ? (g ? parteVenda(g, pid) : 0) : C.devidoPessoa(vd.porVaga, p.peso);
   return Math.ceil(base * n / 100 / 500) * 500; // múltiplo de R$ 5, para cima
 }
@@ -1111,29 +1112,38 @@ function htmlAgenda(ag) {
   const lin = ag.linhas.map(l => `<li><span class="ico">${l.ok ? '✅' : l.atrasado ? '⚠️' : '⏳'}</span><span class="meio"><b>${esc(l.c.desc || 'Cobrança')}</b><small>${l.c.data ? 'até ' + fmtData(l.c.data) : 'sem data'}${l.pago && !l.ok ? ' · já pago ' + brl(l.pago) : ''}${l.atrasado ? ' · <span class="neg">atrasado</span>' : ''}</small></span><span class="num"><b>${brl(l.valor)}</b></span></li>`).join('');
   return `<ul class="lista">${lin}</ul>${ag.restante ? `<div class="peq" style="display:flex;justify-content:space-between;padding:8px 0"><span>Restante (até a viagem)</span><span class="num">${brl(ag.restante)}</span></div>` : ''}`;
 }
-const regraCobranca = c => c.tipo === 'rs' ? `R$ ${fmtNum(c.valor)} por vaga` : `${fmtNum(c.valor)}% ${c.item ? 'de ' + ((((S.dados.gastos || []).find(g => g.id === c.item)) || {}).descricao || 'um item') : 'do valor da viagem'}`;
+const regraCobranca = c => c.tipo === 'rs' ? `R$ ${fmtNum(c.valor)} por vaga${c.item ? ' · ' + ((((S.dados.gastos || []).find(g => g.id === c.item)) || {}).descricao || 'um item') : ''}` : `${fmtNum(c.valor)}% ${c.item ? 'de ' + ((((S.dados.gastos || []).find(g => g.id === c.item)) || {}).descricao || 'um item') : 'do valor da viagem'}`;
 
 function formCobranca(c) {
   const novo = !c; c = c || { id: uid('C'), desc: '', tipo: 'pct', valor: '', data: '', item: '' };
   const its = itensRoteiro().filter(g => !cadaUm(g) && !foraPacote(g));
   const f = janela(novo ? 'Nova cobrança antecipada' : 'Cobrança antecipada', `
-    <label class="cp"><span>Para quê (reserva, sinal…)</span><input type="text" name="desc" required value="${esc(c.desc)}" placeholder="Ex.: Sinal da pousada" autocapitalize="sentences"></label>
+    <label class="cp"><span>Qual item do roteiro está pedindo o adiantamento?</span><select name="item"><option value="">Nenhum (cobrança geral da viagem)</option>${its.map(g => `<option value="${esc(g.id)}" ${c.item === g.id ? 'selected' : ''}>${esc(g.descricao)}${g.data ? ' · ' + esc(fmtData(g.data)) : ''}</option>`).join('')}</select></label>
     <div class="grade2">
-      <label class="cp"><span>Tipo</span><select name="tipo"><option value="pct" ${c.tipo !== 'rs' ? 'selected' : ''}>% (percentual)</option><option value="rs" ${c.tipo === 'rs' ? 'selected' : ''}>R$ por vaga</option></select></label>
+      <label class="cp"><span>Cobrar em</span><select name="tipo"><option value="pct" ${c.tipo !== 'rs' ? 'selected' : ''}>% (percentual)</option><option value="rs" ${c.tipo === 'rs' ? 'selected' : ''}>R$ por vaga</option></select></label>
       <label class="cp"><span id="cob-rot">${c.tipo === 'rs' ? 'Valor por vaga (R$)' : 'Percentual (%)'}</span><input type="text" inputmode="decimal" name="valor" required value="${esc(fmtNum(c.valor))}" placeholder="Ex.: 30"></label>
     </div>
-    <label class="cp ${c.tipo === 'rs' ? 'oculto' : ''}" id="cob-sobre"><span>Percentual sobre</span><select name="item"><option value="">O valor da viagem inteira</option>${its.map(g => `<option value="${esc(g.id)}" ${c.item === g.id ? 'selected' : ''}>${esc(g.descricao)}</option>`).join('')}</select></label>
+    <p class="dica" id="cob-dica" style="margin-top:-6px"></p>
     <label class="cp"><span>Pagar até</span><input type="date" name="data" value="${esc(c.data)}"></label>
+    <label class="cp"><span>Nome (opcional)</span><input type="text" name="desc" value="${esc(c.desc)}" placeholder="Ex.: Sinal da pousada. Se vazio, usa o nome do item." autocapitalize="sentences"></label>
     <p class="dica">Cada pessoa vê o valor dela no Acerto. O que ela já pagou (Recebimentos) vai abatendo as cobranças por ordem de data. Casal paga o dobro.</p>`,
     `${novo ? '' : '<button class="btn perigo" value="del" formnovalidate>Excluir</button>'}<button class="btn" value="x" formnovalidate>Cancelar</button><button class="btn pri" value="ok">Salvar</button>`);
-  f.tipo.onchange = () => { const rs = f.tipo.value === 'rs'; $('#cob-rot', f).textContent = rs ? 'Valor por vaga (R$)' : 'Percentual (%)'; $('#cob-sobre', f).classList.toggle('oculto', rs); };
+  const selItem = f.querySelector('[name=item]');
+  const ajustaCob = () => {
+    const rs = f.tipo.value === 'rs', tem = !!selItem.value;
+    $('#cob-rot', f).textContent = rs ? 'Valor por vaga (R$)' : 'Percentual (%)';
+    $('#cob-dica', f).textContent = rs ? (tem ? 'Valor fixo por vaga, só para quem vai nesse item.' : 'Valor fixo por vaga para todos.')
+      : (tem ? 'Cada pessoa paga esse % da parte dela nesse item.' : 'Cada pessoa paga esse % do valor da viagem dela.');
+  };
+  f.tipo.onchange = ajustaCob; selItem.onchange = ajustaCob; ajustaCob();
   f.onsubmit = e => {
     const b = e.submitter && e.submitter.value;
     if (b === 'del') { if (!confirm('Excluir esta cobrança?')) return e.preventDefault(); salvarPlano(p => { p.cobrancas = (p.cobrancas || []).filter(x => x.id !== c.id); }); return toast('Cobrança excluída.'); }
     if (b !== 'ok') return;
     const fd = new FormData(f), valor = lerNum(fd.get('valor')), tipo = fd.get('tipo');
     if (!(valor > 0) || (tipo === 'pct' && valor > 100)) { e.preventDefault(); return toast(tipo === 'pct' ? 'Informe um percentual entre 1 e 100.' : 'Informe o valor por vaga.'); }
-    const item = { id: c.id, desc: fraseNormal(fd.get('desc')), tipo, valor, data: fd.get('data') || '', item: tipo === 'pct' ? (fd.get('item') || '') : '' };
+    const itemId = fd.get('item') || '', gi = itemId ? (S.dados.gastos || []).find(x => x.id === itemId) : null;
+    const item = { id: c.id, desc: fraseNormal(fd.get('desc')) || (gi ? 'Reserva: ' + gi.descricao : 'Pagamento antecipado'), tipo, valor, data: fd.get('data') || '', item: itemId };
     salvarPlano(p => { p.cobrancas = [...(p.cobrancas || []).filter(x => x.id !== c.id), item]; });
     toast('Cobrança salva ✓');
   };
@@ -2128,7 +2138,7 @@ function telaGrupo() {
     </fieldset>
     <p class="dica" style="margin-bottom:0">${org ? 'As datas valem para quem não tem chegada/saída própria. Destino e aeroporto são usados na busca de passagens.' : 'Só o organizador muda os dados da viagem.'}</p>
   </div>
-  <p class="dica" style="text-align:center">Seus dados, senha e sair da conta: botão 👤 no canto de cima.</p>`;
+  <p class="dica" style="text-align:center">Seus dados, senha e sair da conta: botão 👤 no canto de cima.<br>Versão do app: ${VERSAO_APP}</p>`;
   $('#tela').innerHTML = html;
   $('#conv-comp').onclick = () => compartilhar(leg ? `Entra na viagem "${v.nome}" no ${NOME} para a gente dividir os gastos: ${link}` : `🧳 Entra na viagem "${v.nome}" no ${NOME}: ${link}\nEntre com sua conta Nunnez (ou crie uma em 1 minuto) e você já cai na viagem. Lá tem o roteiro, quanto fica para cada um e onde lançar os gastos.`, link);
   $('#conv-copia').onclick = () => copiar(link);
@@ -2819,6 +2829,10 @@ $('#btn-conta').onclick = menuConta;
 window.addEventListener('online', () => { if (S) { S.erro = ''; enviar(); } });
 window.addEventListener('hashchange', () => { const h = lerHash(); if (h && (!S || h.v !== S.v)) abrir(h.v, h.c); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S && S.dados) atualizar(true); });
+// Procura versão nova do app com frequência (um app deixado aberto só conferia ao abrir): achando, o app recarrega sozinho.
+const buscarVersaoNova = () => { if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistration().then(r => r && r.update()).catch(() => {}); };
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') buscarVersaoNova(); });
+setInterval(buscarVersaoNova, 5 * 60000);
 setInterval(() => { if (document.visibilityState === 'visible' && S && S.dados && !S.enviando) atualizar(true); }, 60000);
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {

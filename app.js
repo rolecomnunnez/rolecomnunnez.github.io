@@ -818,6 +818,7 @@ function secaoPacote(eu, meusIds, parteDe) {
     <div class="peq" style="display:flex;justify-content:space-between;border-top:1px solid var(--lin);padding:10px 0;font-weight:700"><span>Valor da viagem</span><span class="num">${brl(devido)}</span></div>
     <div class="peq" style="display:flex;justify-content:space-between;padding:0 0 10px"><span>Já pago</span><span class="num pos">${brl(pg)}</span></div>
     <div class="peq" style="display:flex;justify-content:space-between;padding:0 0 10px"><span>Falta</span><span class="num ${falta ? 'neg' : 'pos'}">${falta ? brl(falta) : 'tudo pago 🎉'}</span></div>
+    ${(() => { const ag = agendaDe(meusIds); return ag && ag.linhas.length ? `<div class="peq mut" style="border-top:1px solid var(--lin);padding-top:10px">📅 Pagamentos antecipados</div>${htmlAgenda(ag)}${ag.vencido ? `<p class="neg" style="margin:0 0 10px"><b>Vencido: ${brl(ag.vencido)}</b></p>` : ''}` : ''; })()}
     ${falta && !euOrg && orgP && orgP.id !== eu ? `<button class="btn pri lg" id="pg-pacote" data-falta="${falta}" data-para="${esc(orgP.id)}" style="margin-bottom:12px">Pagar ${brl(falta)} com Pix</button>` : ''}</div>`;
 }
 
@@ -1063,13 +1064,79 @@ function cartaoValor() {
   const vagas = Number(eu.peso) > 0 ? Number(eu.peso) : 1;
   const devido = C.devidoPessoa(vd.porVaga, vagas), pg = (pl.recebido || {})[S.eu] || 0, falta = Math.max(0, devido - pg);
   const { sinal, parcelas } = C.parcelar(devido, vd.sinalPct, vd.parcelas);
-  const resto = parcelas.reduce((s, x) => s + x, 0);
+  const resto = parcelas.reduce((s, x) => s + x, 0), ag = agendaDe([S.eu]);
   return `<div class="cartao"><h2>💳 Valor da viagem</h2>
     <div style="font-size:1.7rem;font-weight:800" class="num">${brl(devido)}</div>
     <p class="mut peq" style="margin:0 0 8px">${vagas === 1 ? 'Valor por pessoa' : `${fmtNum(vagas)} vagas × ${brl(vd.porVaga)}`}</p>
-    ${Number(vd.sinalPct) > 0 ? `<p style="margin:4px 0">Sinal de ${fmtNum(vd.sinalPct)}% (garante a vaga): <b class="num">${brl(sinal)}</b></p>` : ''}
-    ${resto > 0 ? `<p style="margin:4px 0">${Number(vd.sinalPct) > 0 ? 'Depois' : 'Em'} ${parcelas.length}× de <b class="num">${brl(parcelas[0])}</b>${parcelas.length > 1 && parcelas[parcelas.length - 1] !== parcelas[0] ? ` (a última de ${brl(parcelas[parcelas.length - 1])})` : ''}</p>` : ''}
+    ${ag && ag.linhas.length ? `<div style="margin:6px 0"><div class="peq mut">📅 Pagamentos antecipados</div>${htmlAgenda(ag)}${ag.vencido ? `<p class="neg" style="margin:4px 0"><b>Vencido: ${brl(ag.vencido)}</b></p>` : ''}</div>` : `${Number(vd.sinalPct) > 0 ? `<p style="margin:4px 0">Sinal de ${fmtNum(vd.sinalPct)}% (garante a vaga): <b class="num">${brl(sinal)}</b></p>` : ''}
+    ${resto > 0 ? `<p style="margin:4px 0">${Number(vd.sinalPct) > 0 ? 'Depois' : 'Em'} ${parcelas.length}× de <b class="num">${brl(parcelas[0])}</b>${parcelas.length > 1 && parcelas[parcelas.length - 1] !== parcelas[0] ? ` (a última de ${brl(parcelas[parcelas.length - 1])})` : ''}</p>` : ''}`}
     <p style="margin:8px 0 0">Já pago: <b class="num pos">${brl(pg)}</b> · Falta: <b class="num ${falta ? 'neg' : 'pos'}">${falta ? brl(falta) : 'tudo pago 🎉'}</b></p></div>`;
+}
+
+/* ---------- Cobranças antecipadas (reservas, sinais): o organizador cadastra, o grupo vê no Acerto e o que já pagou vai abatendo ----------
+   plano.cobrancas = [{ id, desc, tipo: 'pct' | 'rs', valor, data, item }]. "pct" é sobre o valor da viagem inteira ou sobre a parte da pessoa num item do roteiro;
+   "rs" é em reais por vaga. O "já pago" é o total recebido da pessoa (Recebimentos), distribuído nas cobranças por ordem de vencimento. */
+const cobrancas = () => ((S.dados.viagem.plano || {}).cobrancas || []).slice().sort((a, b) => (a.data || '9999').localeCompare(b.data || '9999') || String(a.id).localeCompare(String(b.id)));
+const parteVenda = (g, pid) => (cadaUm(g) || foraPacote(g)) ? 0 : C.inteiros((C.dividir(g, S.dados)[pid] || 0) * fatorVenda());
+function valorCobranca(c, pid) {
+  const p = pessoa(pid), vd = (S.dados.viagem.plano || {}).venda;
+  if (!p || !vd || !vd.porVaga) return 0;
+  const peso = Number(p.peso) > 0 ? Number(p.peso) : 1, n = Number(c.valor) || 0;
+  if (c.tipo === 'rs') return C.centavos(n) * peso;
+  const g = c.item ? (S.dados.gastos || []).find(x => x.id === c.item) : null;
+  const base = c.item ? (g ? parteVenda(g, pid) : 0) : C.devidoPessoa(vd.porVaga, p.peso);
+  return Math.ceil(base * n / 100 / 500) * 500; // múltiplo de R$ 5, para cima
+}
+// Agenda de quem paga por "ids" (a pessoa e quem ela cobre): cada cobrança com valor, quanto já foi pago e se está atrasada.
+function agendaDe(ids) {
+  const pl = S.dados.viagem.plano || {}, vd = pl.venda, cs = cobrancas();
+  if (!vd || !vd.porVaga || !cs.length) return null;
+  const mapa = {}; let devido = 0, recebido = 0;
+  ids.forEach(pid => {
+    const p = pessoa(pid); if (!p) return;
+    const d = C.devidoPessoa(vd.porVaga, p.peso); devido += d;
+    let falta = d, r = (pl.recebido || {})[pid] || 0; recebido += r;
+    cs.forEach(c => {
+      const v = Math.min(valorCobranca(c, pid), falta); falta -= v;
+      const pg = Math.min(r, v); r -= pg;
+      const m = mapa[c.id] || (mapa[c.id] = { c, valor: 0, pago: 0 }); m.valor += v; m.pago += pg;
+    });
+  });
+  const linhas = cs.map(c => mapa[c.id]).filter(l => l && l.valor > 0).map(l => ({ ...l, ok: l.pago >= l.valor, atrasado: l.pago < l.valor && !!l.c.data && l.c.data < hoje() }));
+  const antecip = linhas.reduce((s, l) => s + l.valor, 0);
+  return { linhas, devido, recebido, restante: Math.max(0, devido - antecip), vencido: linhas.filter(l => l.atrasado).reduce((s, l) => s + l.valor - l.pago, 0) };
+}
+function htmlAgenda(ag) {
+  if (!ag || !ag.linhas.length) return '';
+  const lin = ag.linhas.map(l => `<li><span class="ico">${l.ok ? '✅' : l.atrasado ? '⚠️' : '⏳'}</span><span class="meio"><b>${esc(l.c.desc || 'Cobrança')}</b><small>${l.c.data ? 'até ' + fmtData(l.c.data) : 'sem data'}${l.pago && !l.ok ? ' · já pago ' + brl(l.pago) : ''}${l.atrasado ? ' · <span class="neg">atrasado</span>' : ''}</small></span><span class="num"><b>${brl(l.valor)}</b></span></li>`).join('');
+  return `<ul class="lista">${lin}</ul>${ag.restante ? `<div class="peq" style="display:flex;justify-content:space-between;padding:8px 0"><span>Restante (até a viagem)</span><span class="num">${brl(ag.restante)}</span></div>` : ''}`;
+}
+const regraCobranca = c => c.tipo === 'rs' ? `R$ ${fmtNum(c.valor)} por vaga` : `${fmtNum(c.valor)}% ${c.item ? 'de ' + ((((S.dados.gastos || []).find(g => g.id === c.item)) || {}).descricao || 'um item') : 'do valor da viagem'}`;
+
+function formCobranca(c) {
+  const novo = !c; c = c || { id: uid('C'), desc: '', tipo: 'pct', valor: '', data: '', item: '' };
+  const its = itensRoteiro().filter(g => !cadaUm(g) && !foraPacote(g));
+  const f = janela(novo ? 'Nova cobrança antecipada' : 'Cobrança antecipada', `
+    <label class="cp"><span>Para quê (reserva, sinal…)</span><input type="text" name="desc" required value="${esc(c.desc)}" placeholder="Ex.: Sinal da pousada" autocapitalize="sentences"></label>
+    <div class="grade2">
+      <label class="cp"><span>Tipo</span><select name="tipo"><option value="pct" ${c.tipo !== 'rs' ? 'selected' : ''}>% (percentual)</option><option value="rs" ${c.tipo === 'rs' ? 'selected' : ''}>R$ por vaga</option></select></label>
+      <label class="cp"><span id="cob-rot">${c.tipo === 'rs' ? 'Valor por vaga (R$)' : 'Percentual (%)'}</span><input type="text" inputmode="decimal" name="valor" required value="${esc(fmtNum(c.valor))}" placeholder="Ex.: 30"></label>
+    </div>
+    <label class="cp ${c.tipo === 'rs' ? 'oculto' : ''}" id="cob-sobre"><span>Percentual sobre</span><select name="item"><option value="">O valor da viagem inteira</option>${its.map(g => `<option value="${esc(g.id)}" ${c.item === g.id ? 'selected' : ''}>${esc(g.descricao)}</option>`).join('')}</select></label>
+    <label class="cp"><span>Pagar até</span><input type="date" name="data" value="${esc(c.data)}"></label>
+    <p class="dica">Cada pessoa vê o valor dela no Acerto. O que ela já pagou (Recebimentos) vai abatendo as cobranças por ordem de data. Casal paga o dobro.</p>`,
+    `${novo ? '' : '<button class="btn perigo" value="del" formnovalidate>Excluir</button>'}<button class="btn" value="x" formnovalidate>Cancelar</button><button class="btn pri" value="ok">Salvar</button>`);
+  f.tipo.onchange = () => { const rs = f.tipo.value === 'rs'; $('#cob-rot', f).textContent = rs ? 'Valor por vaga (R$)' : 'Percentual (%)'; $('#cob-sobre', f).classList.toggle('oculto', rs); };
+  f.onsubmit = e => {
+    const b = e.submitter && e.submitter.value;
+    if (b === 'del') { if (!confirm('Excluir esta cobrança?')) return e.preventDefault(); salvarPlano(p => { p.cobrancas = (p.cobrancas || []).filter(x => x.id !== c.id); }); return toast('Cobrança excluída.'); }
+    if (b !== 'ok') return;
+    const fd = new FormData(f), valor = lerNum(fd.get('valor')), tipo = fd.get('tipo');
+    if (!(valor > 0) || (tipo === 'pct' && valor > 100)) { e.preventDefault(); return toast(tipo === 'pct' ? 'Informe um percentual entre 1 e 100.' : 'Informe o valor por vaga.'); }
+    const item = { id: c.id, desc: fraseNormal(fd.get('desc')), tipo, valor, data: fd.get('data') || '', item: tipo === 'pct' ? (fd.get('item') || '') : '' };
+    salvarPlano(p => { p.cobrancas = [...(p.cobrancas || []).filter(x => x.id !== c.id), item]; });
+    toast('Cobrança salva ✓');
+  };
 }
 
 function telaPreco() {
@@ -1122,10 +1189,15 @@ function telaPreco() {
   if (vd && vd.porVaga) {
     const ps = S.dados.pessoas || [];
     const dev = p => C.devidoPessoa(vd.porVaga, p.peso), totalDev = ps.reduce((s, p) => s + dev(p), 0), totalRec = ps.reduce((s, p) => s + (rec[p.id] || 0), 0);
-    html += `<div class="titulo-sec">Recebimentos</div><div class="cartao" style="padding:4px 16px">
+    const cs = cobrancas(), totalCob = c => ps.reduce((s, p) => s + valorCobranca(c, p.id), 0);
+    html += `<div class="titulo-sec">📅 Cobranças antecipadas</div><div class="cartao" style="padding:4px 16px">
+      <p class="mut peq" style="margin:10px 0 0">Reservas e sinais que o grupo paga antes da viagem (o que o local pedir). Cada pessoa vê o valor dela no Acerto, e o que já pagou vai abatendo.</p>
+      ${cs.length ? `<ul class="lista">${cs.map(c => `<li class="clica" data-cob="${esc(c.id)}"><span class="ico">📅</span><span class="meio"><b>${esc(c.desc)}</b><small>${esc(regraCobranca(c))} · ${c.data ? 'até ' + fmtData(c.data) : 'sem data'}</small></span><span class="num"><b>${brl(totalCob(c))}</b></span></li>`).join('')}</ul>` : ''}
+      <button class="btn lg sua" id="cob-add" style="margin:8px 0 12px">+ Adicionar cobrança</button></div>
+    <div class="titulo-sec">Recebimentos</div><div class="cartao" style="padding:4px 16px">
       <p class="mut peq" style="margin:10px 0 0">Recebido ${brl(totalRec)} de ${brl(totalDev)}${totalDev > totalRec ? ` · falta ${brl(totalDev - totalRec)}` : ''}</p>
       <ul class="lista">${ps.map(p => { const d = dev(p), g = rec[p.id] || 0;
-        return `<li class="clica" data-rec="${esc(p.id)}">${avatar(p.id)}<span class="meio"><b>${esc(p.nome)}</b><small>${fmtNum(Number(p.peso) > 0 ? Number(p.peso) : 1)} ${Number(p.peso) === 1 || !(Number(p.peso) > 0) ? 'vaga' : 'vagas'} · deve ${brl(d)} · pagou ${brl(g)}</small></span><span class="${g >= d ? 'pos' : 'neg'}">${g >= d ? '✅' : brl(d - g)}</span></li>`; }).join('')}</ul></div>`;
+        return `<li class="clica" data-rec="${esc(p.id)}">${avatar(p.id)}<span class="meio"><b>${esc(p.nome)}</b><small>${fmtNum(Number(p.peso) > 0 ? Number(p.peso) : 1)} ${Number(p.peso) === 1 || !(Number(p.peso) > 0) ? 'vaga' : 'vagas'} · deve ${brl(d)} · pagou ${brl(g)}${(() => { const ag = agendaDe([p.id]); return ag && ag.vencido ? ` · <span class="neg">vencido ${brl(ag.vencido)}</span>` : ''; })()}</small></span><span class="${g >= d ? 'pos' : 'neg'}">${g >= d ? '✅' : brl(d - g)}</span></li>`; }).join('')}</ul></div>`;
   }
   $('#tela').innerHTML = html;
   $$('[data-pr]').forEach(inp => inp.onchange = () => {
@@ -1139,6 +1211,8 @@ function telaPreco() {
   };
   if ($('#pr-des')) $('#pr-des').onclick = () => { salvarPlano(p => { delete p.venda; }); toast('Preço tirado do ar.'); };
   $$('li[data-rec]').forEach(li => li.onclick = () => formRecebido(li.dataset.rec));
+  if ($('#cob-add')) $('#cob-add').onclick = () => formCobranca();
+  $$('li[data-cob]').forEach(li => li.onclick = () => formCobranca(cobrancas().find(c => c.id === li.dataset.cob)));
   if ($('#pr-soma')) $('#pr-soma').onclick = e => { e.preventDefault(); const t = itensRoteiro().filter(g => !cadaUm(g) && !foraPacote(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0); salvarPlano(p => { p.precif = { ...(p.precif || {}), custo: t / 100 }; }); };
   if ($('#pr-ver')) $('#pr-ver').onclick = () => { VER_COMO = $('#pr-como').value; irAba('saldos'); };
 }

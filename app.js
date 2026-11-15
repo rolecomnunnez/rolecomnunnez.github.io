@@ -627,6 +627,13 @@ function render() {
     document.title = NOME;
     return telaInicio();
   }
+  // Manutenção (config.js → MANUTENCAO: true): só o organizador entra; os participantes veem este aviso.
+  if (window.CONFIG && window.CONFIG.MANUTENCAO && !souOrg()) {
+    ['#abas', '#fab', '#btn-sync', '#hero-v'].forEach(s => { const e = $(s); if (e) e.classList.add('oculto'); });
+    $('#titulo').textContent = NOME; $('#subtitulo').textContent = SLOGAN;
+    $('#tela').innerHTML = `<div class="cartao vazio"><b>🛠️</b><h2 style="margin:6px 0">Estamos em manutenção</h2>Estamos ajustando algumas informações da viagem.<br>Volte daqui a pouco. Obrigado pela paciência!</div>`;
+    return;
+  }
   const v = S.dados.viagem;
   $('#titulo').textContent = v.nome;
   const eu = pessoa(S.eu);

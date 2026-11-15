@@ -1938,7 +1938,7 @@ function telaResumo() {
   const linhaNum = (ic, rot, val, sub) => `<li><span class="ico">${ic}</span><span class="meio"><b>${rot}</b>${sub ? `<small>${sub}</small>` : ''}</span><span class="num"><b>${val}</b></span></li>`;
   const numeros = `<div class="cartao" style="padding:6px 16px"><h2 style="margin:10px 0 2px">🧭 Números da viagem</h2><ul class="lista">
     ${rk.n ? linhaNum('🛣️', 'Km rodados', rk.ok ? fmtNum(Math.round(rk.km)) + ' km' : '…', rk.ok ? `≈ ${fmtDur(rk.min)} dirigindo, pelo roteiro${rk.ok < rk.n ? ' (faltam trechos)' : ''}${transp && rk.km ? ' · transporte ≈ ' + brl(Math.round(transp / rk.km)) + ' por km' : ''}` : 'calculando pelo roteiro…') : ''}
-    ${dias ? linhaNum('📅', dias + (dias === 1 ? ' dia' : ' dias'), brl(Math.round(total / dias)), `por dia no grupo · ≈ ${brl(Math.round(total / dias / n))} por pessoa por dia`) : ''}
+    ${dias ? linhaNum('📅', `Média por dia (${dias} ${dias === 1 ? 'dia' : 'dias'})`, `<span class="mut">${brl(Math.round(total / dias))}</span>`, `grupo todo, não entra na soma · ≈ ${brl(Math.round(total / dias / n))} por pessoa por dia`) : ''}
     ${porGrupo.map(([ic, nm, val]) => linhaNum(ic, nm, brl(val), `≈ ${brl(Math.round(val / n))} por pessoa · ${Math.round(val / total * 100)}% do total`)).join('')}
   </ul></div>`;
   const html = `

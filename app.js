@@ -843,9 +843,19 @@ function secaoPacote(eu, meusIds, parteDe) {
   const pg = meusIds.reduce((s, id) => s + (rec[id] || 0), 0), falta = Math.max(0, devido - pg);
   const orgP = (S.dados.pessoas || []).find(p => p.papel === 'organizador');
   const euOrg = souOrg();
+  // Cada item é arredondado para R$ 5, então a soma pode ficar uns reais fora do valor da viagem: a diferença vai para o item maior do pacote.
+  // O preço divide o custo só entre quem paga (vagas); os itens são divididos entre todos. Por isso cada item é escalado
+  // para que a lista some exatamente o valor da viagem desta pessoa.
+  const dentro = itens.filter(g => !cadaUm(g) && !foraPacote(g));
+  const baseIt = dentro.reduce((s, g) => s + parteDe(g), 0);
+  const valIt = new Map(itens.map(g => [g, (dentro.includes(g) && baseIt > 0 && devido > 0) ? C.inteiros(parteDe(g) * devido / baseIt) : vit(g, parteDe(g))]));
+  if (dentro.length && devido > 0) {
+    const dif = devido - dentro.reduce((s, g) => s + valIt.get(g), 0), maior = dentro.slice().sort((a, b) => valIt.get(b) - valIt.get(a))[0];
+    if (dif) valIt.set(maior, valIt.get(maior) + dif);
+  }
   const linhas = itens.map(g => {
     const cat = C.CAT[g.categoria] || C.CAT.outros, fora = foraPacote(g) || cadaUm(g);
-    return `<li><span class="ico">${cat.icone}</span><span class="meio"><b>${esc(g.descricao)}</b><small>${cadaUm(g) ? 'pague na hora' : foraPacote(g) ? esc(quando(g)) : esc(quando(g)) + ' · pagamento em grupo'}</small></span><span class="num"><b>${brl(vit(g, parteDe(g)))}</b></span></li>`;
+    return `<li><span class="ico">${cat.icone}</span><span class="meio"><b>${esc(g.descricao)}</b><small>${cadaUm(g) ? 'pague na hora' : foraPacote(g) ? esc(quando(g)) : esc(quando(g)) + ' · pagamento em grupo'}</small></span><span class="num"><b>${brl(valIt.get(g))}</b></span></li>`;
   }).join('');
   return `<div class="titulo-sec">🗺️ Sua parte no roteiro</div><div class="cartao" style="padding:4px 16px">${linhas ? `<ul class="lista">${linhas}</ul>` : '<p class="mut peq">Nenhum item do roteiro marcado com você ainda.</p>'}
     <div class="peq" style="display:flex;justify-content:space-between;border-top:1px solid var(--lin);padding:10px 0;font-weight:700"><span>Valor da viagem</span><span class="num">${brl(devido)}</span></div>
@@ -1091,18 +1101,23 @@ const salvarPlano = mudar => { const pl = { ...(S.dados.viagem.plano || {}) }; m
 
 // Valor de vitrine: com o preço publicado, cada item aparece para o grupo com a margem dentro (custo × fator).
 // O que cada um paga na hora (entrada, ingresso) fica como está. O organizador vê o valor real na própria tela.
-const fatorVenda = () => { const f = Number(((S.dados.viagem.plano || {}).venda || {}).fator); return f > 0 ? f : 1; };
+// Fator = o que o grupo paga no total (preço por vaga × vagas) ÷ custo real dos itens do pacote. Assim os itens mostrados sempre somam o valor da viagem.
+const fatorVenda = () => {
+  const vd = (S.dados.viagem.plano || {}).venda, custo = custoDoRoteiro(), cobrado = vd && vd.porVaga ? vd.porVaga * vagasDoGrupo() : 0;
+  if (custo > 0 && cobrado > 0) return cobrado / custo;
+  const f = Number((vd || {}).fator); return f > 0 ? f : 1;
+};
 // O organizador pode "ver como o grupo vê" para conferir o que os participantes enxergam (só muda a tela dele).
 // "Ver como": enquanto VER_COMO tem o id de uma pessoa, as telas são desenhadas como se ela estivesse logada (render troca S.eu). Só para olhar.
 let VER_COMO = '';
 const comoGrupo = () => !souOrg();
 // "Fora do pacote": item que o grupo paga direto no local (ex.: hospedagem). Não leva margem e não entra na soma do pacote.
 const foraPacote = g => !!((g.info || {}).fora);
-const vit = (g, centavos, paraOutros) => (cadaUm(g) || foraPacote(g) || (!paraOutros && !comoGrupo())) ? centavos : C.inteiros(centavos * fatorVenda()); // múltiplo de R$ 5
+const vit = (g, centavos, paraOutros) => (cadaUm(g) || foraPacote(g) || !vendaPublicada()) ? centavos : C.inteiros(centavos * fatorVenda()); // múltiplo de R$ 5
 // Total de um item como o grupo vê: a SOMA das partes já arredondadas (assim 5 pessoas × R$ 50 = R$ 250 e a conta bate;
 // arredondar o total à parte dava R$ 260 com partes de R$ 50).
 const totalVit = (g, paraOutros) => {
-  if (cadaUm(g) || foraPacote(g) || (!paraOutros && !comoGrupo())) return C.totalItem(g, S.dados);
+  if (cadaUm(g) || foraPacote(g) || !vendaPublicada()) return C.totalItem(g, S.dados);
   const d = C.dividir(g, S.dados), ks = Object.keys(d);
   return ks.length ? ks.reduce((s, k) => s + C.inteiros(d[k] * fatorVenda()), 0) : C.inteiros(C.totalItem(g, S.dados) * fatorVenda());
 };
@@ -2333,10 +2348,10 @@ function telaResumo() {
   </ul></div>`;
   const html = `
   <div class="cartao destaque" style="text-align:center">
-    <div class="peq" style="opacity:.9">${esc(S.dados.viagem.nome)} · ${comoGrupo() && vendaPublicada() ? 'total do roteiro' : 'custo total'}</div>
+    <div class="peq" style="opacity:.9">${esc(S.dados.viagem.nome)} · ${vendaPublicada() ? 'total do roteiro' : 'custo total'}</div>
     <div style="font-size:2.1rem;font-weight:800" class="num">${brl(total)}</div>
     <div class="peq" style="opacity:.9">${todos.length} lançamentos · ${S.dados.pessoas.length} pessoas · ${vendaPublicada() ? `valor da viagem <b>${brl(((S.dados.viagem.plano || {}).venda || {}).porVaga)}</b> por pessoa` : `≈ ${brl(Math.round(total / n))} por pessoa`}</div>
-    ${vendaPublicada() ? `<div class="peq" style="opacity:.75">média dos lançamentos ≈ ${brl(Math.round(total / n))} por pessoa (não é o que cada um paga)</div>` : ''}
+    ${vendaPublicada() ? `<div class="peq" style="opacity:.75">Total ${brl(total)}${naHora ? ` − ${brl(naHora)} que cada um paga na hora/fora do pacote` : ''} = pacote ${brl(total - naHora)} ÷ ${fmtNum(vagasDoGrupo())} ${vagasDoGrupo() === 1 ? 'vaga' : 'vagas'} ≈ ${brl(Math.round((total - naHora) / Math.max(1, vagasDoGrupo())))} (o valor da viagem é arredondado para cima em múltiplos de R$ 5)</div>` : ''}
   </div>
   <div class="cartao" style="padding:12px 16px">
     <div class="linha-bar" style="margin:0"><div class="barra" style="height:14px;display:flex">

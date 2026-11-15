@@ -1683,7 +1683,7 @@ function htmlResumoViagem() {
   const dia = (s, d) => { const x = new Date(s + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + d); return x.toISOString().slice(0, 10); };
   const noites = (a, b) => Math.round((Date.parse(b + 'T12:00:00Z') - Date.parse(a + 'T12:00:00Z')) / 86400000);
   const dd = s => s.slice(8, 10), dm = s => dd(s) + '/' + s.slice(5, 7);
-  const cidade = l => (candidatosCidade(l || '')[0] || '').trim();
+  const cidade = l => (candidatosCidade(l || '')[0] || String(l || '')).trim();
   const mesma = (a, b) => a.toLowerCase() === b.toLowerCase();
   const itens = semAlternativas(itensRoteiro());
   const bases = itens.filter(g => g.categoria === 'hospedagem' && g.data && g.local).sort((a, b) => a.data.localeCompare(b.data))

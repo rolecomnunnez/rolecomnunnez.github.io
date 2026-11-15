@@ -1,5 +1,5 @@
 // Guarda o app no celular para abrir sem internet. Suba o nÃºmero do CACHE a cada mudanÃ§a no app.
-const CACHE = 'racha-v64';
+const CACHE = 'racha-v65';
 const ARQUIVOS = ['./', 'index.html', 'app.js', 'calc.js', 'config.js', 'manifest.webmanifest', 'favicon.png', 'logo.jpg', 'logo-transparente.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png',
   'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'];
 
@@ -18,7 +18,9 @@ self.addEventListener('fetch', e => {
   // Rede primeiro (pega versÃ£o nova), cache se estiver sem internet.
   // Arquivos do próprio app: sempre confere com o site (sem isso o celular usa a cópia de até 10 min atrás).
   const doApp = url.origin === self.location.origin;
-  e.respondWith(fetch(doApp ? new Request(req, { cache: 'no-cache' }) : req).then(r => {
+  // Scripts do app: o endereço leva a versão (?v=racha-vNN), então o cache da rede do GitHub (até ~10 min) não entrega a cópia antiga.
+  const arquivo = doApp && req.mode !== 'navigate' && /\.(js|css)$/.test(url.pathname) ? new Request(url.origin + url.pathname + '?v=' + CACHE, { cache: 'no-cache' }) : null;
+  e.respondWith(fetch(arquivo || (doApp ? new Request(req, { cache: 'no-cache' }) : req)).then(r => {
     if (r.ok) { const cp = r.clone(); caches.open(CACHE).then(c => c.put(req, cp)); }
     return r;
   }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));

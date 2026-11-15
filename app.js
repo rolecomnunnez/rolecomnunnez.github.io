@@ -285,12 +285,16 @@ async function enviar() {
 async function atualizar(silencioso) {
   if (!S) return;
   if (S.fila.length) return enviar();
+  // Atualização automática não mexe na tela enquanto a pessoa edita (janela aberta ou cursor num campo): senão o que ela digitou some.
+  const campo = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if (silencioso && ((typeof dlg !== 'undefined' && dlg && dlg.open) || campo)) return;
   const alvo = S;
   alvo.enviando = true; status();
   try {
     const j = await chamar({ acao: 'carregar', v: alvo.v, c: alvo.c, tok: alvo.tok || '' });
+    const igual = JSON.stringify(alvo.dados) === JSON.stringify(j.dados); // nada mudou: não redesenha a tela
     alvo.dados = j.dados; alvo.erro = ''; alvo._falhas = 0;
-    if (S === alvo) { recebeu(j); guardar(); render(); }
+    if (S === alvo) { recebeu(j); guardar(); if (!(silencioso && igual)) render(); }
   } catch (e) {
     if (e.login) { alvo.enviando = false; if (S === alvo) pedirLogin(e.message); return; }
     // Falha isolada (a planilha do Google às vezes demora ou recusa uma chamada): tenta de novo em 6 s sem mostrar "offline".

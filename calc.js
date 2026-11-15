@@ -294,18 +294,19 @@
     return { ok: true, custo: c, porVaga, receita, lucro, margemReal: Math.round(lucro / c * 1000) / 10, equilibrio: porVaga ? Math.ceil(c / porVaga) : 0 };
   }
   // O que cada um paga: preço por vaga × quantas vagas a pessoa ocupa (casal = 2).
-  const devidoPessoa = (porVaga, peso) => Math.round(porVaga * (Number(peso) > 0 ? Number(peso) : 1));
-  // Parcelas do que falta depois do sinal (a última absorve a sobra de centavos).
+  const inteiros = c => Math.ceil(Math.round(c) / 100) * 100; // reais inteiros, para cima (sem centavos quebrados)
+  const devidoPessoa = (porVaga, peso) => inteiros(porVaga * (Number(peso) > 0 ? Number(peso) : 1));
+  // Sinal e parcelas em reais inteiros; a última parcela absorve a sobra.
   function parcelar(total, sinalPct, n) {
-    const sinal = Math.round(total * (Number(sinalPct) || 0) / 100), resto = total - sinal, k = Math.max(1, Math.floor(Number(n) || 1));
-    const base = Math.floor(resto / k), parcelas = Array.from({ length: k }, () => base);
+    const sinal = Math.min(total, inteiros(total * (Number(sinalPct) || 0) / 100)), resto = total - sinal, k = Math.max(1, Math.floor(Number(n) || 1));
+    const base = Math.floor(resto / k / 100) * 100, parcelas = Array.from({ length: k }, () => base);
     parcelas[k - 1] += resto - base * k;
     return { sinal, parcelas };
   }
 
   const brl = c => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-  const API = { CATEGORIAS, CAT, MODOS, RESTRICOES, centavos, valorDoGasto, totalItem, jaPagoItem, dividir, saldos, partes, transferencias, pix, crc16, normalizarChave, estimativa, precificar, devidoPessoa, parcelar, brl, repartir };
+  const API = { CATEGORIAS, CAT, MODOS, RESTRICOES, centavos, valorDoGasto, totalItem, jaPagoItem, dividir, saldos, partes, transferencias, pix, crc16, normalizarChave, estimativa, precificar, devidoPessoa, parcelar, inteiros, brl, repartir };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else raiz.Calc = API;
 })(this);

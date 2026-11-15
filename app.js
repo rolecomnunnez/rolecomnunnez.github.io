@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v54'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v55'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -815,7 +815,7 @@ const cobre = id => S.dados.pessoas.filter(p => p.id !== id && responsavel(p.id)
 function secaoPacote(eu, meusIds, parteDe) {
   const pl = S.dados.viagem.plano || {}, vd = pl.venda, rec = pl.recebido || {};
   const itens = itensRoteiro().filter(g => parteDe(g));
-  const devido = meusIds.reduce((s, id) => s + C.devidoPessoa(vd.porVaga, (pessoa(id) || {}).peso), 0);
+  const devido = meusIds.reduce((s, id) => s + devidoDe(id), 0);
   const pg = meusIds.reduce((s, id) => s + (rec[id] || 0), 0), falta = Math.max(0, devido - pg);
   const orgP = (S.dados.pessoas || []).find(p => p.papel === 'organizador');
   const euOrg = souOrg();
@@ -1051,7 +1051,18 @@ function telaPlano() {
 /* ---------- Precificação: custo total + margem → preço de venda por vaga ----------
    Só o organizador vê custo e margem (plano.precif; o Code.gs não manda para os outros).
    Todos veem só o preço publicado (plano.venda) e o que já pagaram (plano.recebido). Vaga = pessoa paga (casal = 2). */
-const vagasDoGrupo = () => (S.dados.pessoas || []).reduce((s, p) => s + (Number(p.peso) > 0 ? Number(p.peso) : 1), 0);
+// Quem não paga o pacote (ex.: o organizador, cortesia): plano.isentos. Fica fora das vagas, do "valor da viagem" e dos recebimentos.
+const isento = pid => ((S.dados.viagem.plano || {}).isentos || []).includes(pid);
+const vagasDoGrupo = isentos => (S.dados.pessoas || []).filter(p => !(isentos || (S.dados.viagem.plano || {}).isentos || []).includes(p.id)).reduce((s, p) => s + (Number(p.peso) > 0 ? Number(p.peso) : 1), 0);
+// Quanto a pessoa deve do pacote (0 se não paga ou se o preço não está publicado).
+const devidoDe = pid => { const vd = (S.dados.viagem.plano || {}).venda, p = pessoa(pid); return (vd && vd.porVaga && p && !isento(pid)) ? C.devidoPessoa(vd.porVaga, p.peso) : 0; };
+// Preço publicado a partir da Precificação (uma conta só, usada ao publicar e ao atualizar sozinha).
+function calcVenda(pr, isentos) {
+  const vagas = Number(pr.vagas) > 0 ? Number(pr.vagas) : vagasDoGrupo(isentos);
+  const r = C.precificar({ custo: pr.custo, margemTipo: pr.margemTipo === 'rs' ? 'rs' : 'pct', margem: pr.margem, vagas });
+  if (!r.ok) return null;
+  return { r, vagas, venda: { porVaga: r.porVaga, fator: Math.round(r.receita / r.custo * 10000) / 10000, sinalPct: Number(pr.sinalPct) || 0, parcelas: Math.max(1, Math.floor(Number(pr.parcelas) || 1)), em: hoje() } };
+}
 const salvarPlano = mudar => { const pl = { ...(S.dados.viagem.plano || {}) }; mudar(pl); op({ op: 'viagem', dados: { plano: pl } }); };
 
 // Valor de vitrine: com o preço publicado, cada item aparece para o grupo com a margem dentro (custo × fator).
@@ -1070,8 +1081,9 @@ const vendaPublicada = () => !!((S.dados.viagem.plano || {}).venda || {}).porVag
 function cartaoValor() {
   const pl = S.dados.viagem.plano || {}, vd = pl.venda, eu = pessoa(S.eu);
   if (!vd || !vd.porVaga || !eu) return '';
+  if (isento(S.eu)) return `<div class="cartao"><h2>💳 Valor da viagem</h2><p class="mut" style="margin:0">Você não paga o pacote da viagem.</p></div>`;
   const vagas = Number(eu.peso) > 0 ? Number(eu.peso) : 1;
-  const devido = C.devidoPessoa(vd.porVaga, vagas), pg = (pl.recebido || {})[S.eu] || 0, falta = Math.max(0, devido - pg);
+  const devido = devidoDe(S.eu), pg =(pl.recebido || {})[S.eu] || 0, falta = Math.max(0, devido - pg);
   const { sinal, parcelas } = C.parcelar(devido, vd.sinalPct, vd.parcelas);
   const resto = parcelas.reduce((s, x) => s + x, 0), ag = agendaDe([S.eu]);
   return `<div class="cartao"><h2>💳 Valor da viagem</h2>
@@ -1096,7 +1108,8 @@ function valorCobranca(c, pid) {
   const gs = itensDaCobranca(c).map(i => (S.dados.gastos || []).find(x => x.id === i)).filter(Boolean);
   const comItens = itensDaCobranca(c).length > 0, parte = gs.reduce((s, g) => s + parteVenda(g, pid), 0);
   if (c.tipo === 'rs') return (comItens && !parte) ? 0 : C.centavos(n) * peso; // com itens: só para quem vai em algum deles (cobrado uma vez)
-  const base = comItens ? parte : C.devidoPessoa(vd.porVaga, p.peso);
+  if (isento(pid)) return 0;
+  const base = comItens ? parte : devidoDe(pid);
   return Math.ceil(base * n / 100 / 500) * 500; // múltiplo de R$ 5, para cima
 }
 // Agenda de quem paga por "ids" (a pessoa e quem ela cobre): cada cobrança com valor, quanto já foi pago e se está atrasada.
@@ -1106,7 +1119,7 @@ function agendaDe(ids) {
   const mapa = {}; let devido = 0, recebido = 0;
   ids.forEach(pid => {
     const p = pessoa(pid); if (!p) return;
-    const d = C.devidoPessoa(vd.porVaga, p.peso); devido += d;
+    const d = devidoDe(pid); devido += d;
     let falta = d, r = (pl.recebido || {})[pid] || 0; recebido += r;
     cs.forEach(c => {
       const v = Math.min(valorCobranca(c, pid), falta); falta -= v;
@@ -1187,7 +1200,7 @@ function telaPreco() {
       <label class="cp"><span>Sinal (%)</span><input type="text" inputmode="decimal" data-pr="sinalPct" value="${esc(fmtNum(pr.sinalPct))}" placeholder="Ex.: 30"></label>
       <label class="cp"><span>Parcelas do restante</span><input type="text" inputmode="numeric" data-pr="parcelas" value="${esc(fmtNum(pr.parcelas))}" placeholder="Ex.: 3"></label>
     </div>
-    <p class="dica" style="margin-bottom:0">Pessoas já cadastradas: ${esc(fmtNum(auto))} ${auto === 1 ? 'vaga' : 'vagas'}. O preço por pessoa é igual para todos e arredondado para cima em múltiplos de R$ 5. Os valores dos itens para o grupo vão para o múltiplo de R$ 5 mais próximo. Criança que não vai não entra na conta.</p>
+    <p class="dica" style="margin-bottom:0">Vagas que pagam (pelo Grupo, sem quem está marcado como "não paga"): ${esc(fmtNum(auto))}. Com o preço publicado, qualquer mudança aqui atualiza o preço do grupo na hora. O preço por pessoa é igual para todos e arredondado para cima em múltiplos de R$ 5. Os valores dos itens para o grupo vão para o múltiplo de R$ 5 mais próximo. Criança que não vai não entra na conta.</p>
   </div>`;
   if (!r.ok) {
     html += `<div class="cartao vazio"><b>🧮</b>Informe o custo total e as vagas para ver o preço de venda.</div>`;
@@ -1215,7 +1228,7 @@ function telaPreco() {
   }
   if (vd && vd.porVaga) {
     const ps = S.dados.pessoas || [];
-    const dev = p => C.devidoPessoa(vd.porVaga, p.peso), totalDev = ps.reduce((s, p) => s + dev(p), 0), totalRec = ps.reduce((s, p) => s + (rec[p.id] || 0), 0);
+    const dev = p => devidoDe(p.id), totalDev =ps.reduce((s, p) => s + dev(p), 0), totalRec = ps.reduce((s, p) => s + (rec[p.id] || 0), 0);
     const cs = cobrancas(), totalCob = c => ps.reduce((s, p) => s + valorCobranca(c, p.id), 0);
     html += `<div class="titulo-sec">📅 Cobranças antecipadas</div><div class="cartao" style="padding:4px 16px">
       <p class="mut peq" style="margin:10px 0 0">Reservas e sinais que o grupo paga antes da viagem (o que o local pedir). Cada pessoa vê o valor dela no Acerto, e o que já pagou vai abatendo.</p>
@@ -1224,40 +1237,54 @@ function telaPreco() {
     <div class="titulo-sec">Recebimentos</div><div class="cartao" style="padding:4px 16px">
       <p class="mut peq" style="margin:10px 0 0">Recebido ${brl(totalRec)} de ${brl(totalDev)}${totalDev > totalRec ? ` · falta ${brl(totalDev - totalRec)}` : ''}</p>
       <ul class="lista">${ps.map(p => { const d = dev(p), g = rec[p.id] || 0;
-        return `<li class="clica" data-rec="${esc(p.id)}">${avatar(p.id)}<span class="meio"><b>${esc(p.nome)}</b><small>${fmtNum(Number(p.peso) > 0 ? Number(p.peso) : 1)} ${Number(p.peso) === 1 || !(Number(p.peso) > 0) ? 'vaga' : 'vagas'} · deve ${brl(d)} · pagou ${brl(g)}${(() => { const ag = agendaDe([p.id]); return ag && ag.vencido ? ` · <span class="neg">vencido ${brl(ag.vencido)}</span>` : ''; })()}</small></span><span class="${g >= d ? 'pos' : 'neg'}">${g >= d ? '✅' : brl(d - g)}</span></li>`; }).join('')}</ul></div>`;
+        return `<li class="clica" data-rec="${esc(p.id)}">${avatar(p.id)}<span class="meio"><b>${esc(p.nome)}</b><small>${isento(p.id) ? 'não paga o pacote (fora das vagas)' : `${fmtNum(Number(p.peso) > 0 ? Number(p.peso) : 1)} ${Number(p.peso) === 1 || !(Number(p.peso) > 0) ? 'vaga' : 'vagas'} · deve ${brl(d)} · pagou ${brl(g)}${(() => { const ag = agendaDe([p.id]); return ag && ag.vencido ? ` · <span class="neg">vencido ${brl(ag.vencido)}</span>` : ''; })()}`}</small></span><span class="${isento(p.id) || g >= d ? 'pos' : 'neg'}">${isento(p.id) ? '—' : g >= d ? '✅' : brl(d - g)}</span></li>`; }).join('')}</ul></div>`;
   }
   $('#tela').innerHTML = html;
   $$('[data-pr]').forEach(inp => inp.onchange = () => {
     const k = inp.dataset.pr, val = k === 'margemTipo' ? inp.value : lerNum(inp.value);
-    salvarPlano(p => { p.precif = { ...(p.precif || {}), [k]: val }; });
+    let aviso = '';
+    salvarPlano(p => {
+      p.precif = { ...(p.precif || {}), [k]: val };
+      // Preço já publicado: acompanha a Precificação na hora (antes ficava com a conta antiga até tocar em "Atualizar").
+      if (p.venda) { const x = calcVenda(p.precif, p.isentos); if (x) { p.venda = x.venda; aviso = `Preço publicado atualizado: ${brl(x.venda.porVaga)} por pessoa.`; } else aviso = 'Falta custo ou vagas: o preço publicado não mudou.'; }
+    });
+    if (aviso) toast(aviso);
   });
   $('[data-volta-grupo]').onclick = () => irAba('grupo');
   if ($('#pr-pub')) $('#pr-pub').onclick = () => {
-    salvarPlano(p => { p.venda = { porVaga: r.porVaga, fator: Math.round(r.receita / r.custo * 10000) / 10000, sinalPct: Number(pr.sinalPct) || 0, parcelas: Math.max(1, Math.floor(Number(pr.parcelas) || 1)), em: hoje() }; });
+    salvarPlano(p => { const x = calcVenda(p.precif || pr, p.isentos); if (x) p.venda = x.venda; });
     toast('Preço publicado ✓ Todos já veem o valor deles.');
   };
   if ($('#pr-des')) $('#pr-des').onclick = () => { salvarPlano(p => { delete p.venda; }); toast('Preço tirado do ar.'); };
   $$('li[data-rec]').forEach(li => li.onclick = () => formRecebido(li.dataset.rec));
   if ($('#cob-add')) $('#cob-add').onclick = () => formCobranca();
   $$('li[data-cob]').forEach(li => li.onclick = () => formCobranca(cobrancas().find(c => c.id === li.dataset.cob)));
-  if ($('#pr-soma')) $('#pr-soma').onclick = e => { e.preventDefault(); const t = itensRoteiro().filter(g => !cadaUm(g) && !foraPacote(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0); salvarPlano(p => { p.precif = { ...(p.precif || {}), custo: t / 100 }; }); };
+  if ($('#pr-soma')) $('#pr-soma').onclick = e => { e.preventDefault(); const t = itensRoteiro().filter(g => !cadaUm(g) && !foraPacote(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0); salvarPlano(p => { p.precif = { ...(p.precif || {}), custo: t / 100 }; if (p.venda) { const x = calcVenda(p.precif, p.isentos); if (x) p.venda = x.venda; } }); };
   if ($('#pr-ver')) $('#pr-ver').onclick = () => { VER_COMO = $('#pr-como').value; irAba('saldos'); };
 }
 
 function formRecebido(pid) {
   const p = pessoa(pid), pl = S.dados.viagem.plano || {}, vd = pl.venda || {}, g = (pl.recebido || {})[pid] || 0;
-  const dev = C.devidoPessoa(vd.porVaga || 0, p.peso);
+  const dev = devidoDe(pid);
   const f = janela('Recebimento · ' + esc(p.nome), `
-    <p class="mut" style="margin-top:0">Deve ${brl(dev)} · já recebido ${brl(g)}.</p>
+    <p class="mut" style="margin-top:0">${isento(pid) ? 'Não paga o pacote.' : `Deve ${brl(dev)}`} · já recebido ${brl(g)}.</p>
     <label class="cp"><span>Total já recebido de ${esc(p.nome.split(' ')[0])} (R$)</span><input type="text" inputmode="decimal" name="valor" value="${esc(fmtNum(g / 100))}" required></label>
-    <p class="dica">Coloque o total que a pessoa já te pagou (sinal + parcelas), não só o último pagamento.</p>`,
+    <p class="dica">Coloque o total que a pessoa já te pagou (sinal + parcelas), não só o último pagamento.</p>
+    <label class="check"><input type="checkbox" name="isento" ${isento(pid) ? 'checked' : ''}>Não paga o pacote (você, cortesia). Sai das vagas e da conta.</label>`,
     `<button class="btn" value="x" formnovalidate>Cancelar</button><button class="btn pri" value="ok">Salvar</button>`);
   f.onsubmit = e => {
     if (!e.submitter || e.submitter.value !== 'ok') return;
     const v = lerNum(new FormData(f).get('valor'));
     if (v === '' || !(v >= 0)) { e.preventDefault(); return toast('Informe o valor.'); }
-    salvarPlano(x => { x.recebido = { ...(x.recebido || {}), [pid]: C.centavos(v) }; });
-    toast('Recebimento salvo ✓');
+    const nao = !!new FormData(f).get('isento'); let aviso = '';
+    salvarPlano(x => {
+      x.recebido = { ...(x.recebido || {}), [pid]: C.centavos(v) };
+      const era = (x.isentos || []).includes(pid);
+      x.isentos = nao ? [...new Set([...(x.isentos || []), pid])] : (x.isentos || []).filter(i => i !== pid);
+      // Mudou quem paga: as vagas mudam, então o preço publicado é recalculado.
+      if (era !== nao && x.venda) { const y = calcVenda(x.precif || {}, x.isentos); if (y) { x.venda = y.venda; aviso = ` Preço publicado: ${brl(y.venda.porVaga)} por pessoa.`; } }
+    });
+    toast('Recebimento salvo ✓' + aviso);
   };
 }
 
@@ -1848,7 +1875,7 @@ async function avisarPorEmail() {
   const mensagens = comEmail.map(p => {
     const linhas = itens.map(g => { const pt = C.dividir(g, S.dados)[p.id]; return `<li><b>${esc(g.descricao)}</b><br>${esc(quando(g))}${g.local ? '<br>📍 ' + esc(g.local) : ''}<br>${cadaUm(g) ? `${brl(C.centavos(g.valor))} por pessoa, cada um paga o seu na hora · ${pt ? 'leve <b>' + brl(pt) + '</b>' : 'você não vai'}` : `Total ${brl(vit(g, C.totalItem(g, S.dados), true))} · ${pt ? 'sua parte <b>' + brl(vit(g, pt, true)) + '</b>' : 'você não vai'}${pago(g) ? '' : ' (a pagar)'}`}</li>`; }).join('');
     return { pessoa: p.id, assunto: '🗺️ Roteiro: ' + S.dados.viagem.nome, titulo: 'Oi, ' + p.nome.split(' ')[0] + '! Este é o roteiro da viagem',
-      html: `<ul>${linhas}</ul><p>${vendaPublicada() ? `Valor da sua viagem: <b>${brl(C.devidoPessoa(S.dados.viagem.plano.venda.porVaga, p.peso))}</b>.` : `Sua parte na viagem até agora: <b>${brl(partes[p.id] || 0)}</b>.`}</p><p>No app você marca se vai em cada passeio.</p>` };
+      html: `<ul>${linhas}</ul><p>${vendaPublicada() ? `Valor da sua viagem: <b>${brl(devidoDe(p.id))}</b>.` : `Sua parte na viagem até agora: <b>${brl(partes[p.id] || 0)}</b>.`}</p><p>No app você marca se vai em cada passeio.</p>` };
   });
   try { const j = await req('avisar', { mensagens }); toast(`E-mail enviado para ${j.enviados} ${j.enviados === 1 ? 'pessoa' : 'pessoas'} ✓`); }
   catch (e) { toast(e.servidor ? e.message : 'Sem internet para mandar os e-mails.'); }
@@ -2051,9 +2078,10 @@ function telaResumo() {
   </ul></div>`;
   const html = `
   <div class="cartao destaque" style="text-align:center">
-    <div class="peq" style="opacity:.9">${esc(S.dados.viagem.nome)} · custo total</div>
+    <div class="peq" style="opacity:.9">${esc(S.dados.viagem.nome)} · ${comoGrupo() && vendaPublicada() ? 'total do roteiro' : 'custo total'}</div>
     <div style="font-size:2.1rem;font-weight:800" class="num">${brl(total)}</div>
-    <div class="peq" style="opacity:.9">${todos.length} lançamentos · ${S.dados.pessoas.length} pessoas · ≈ ${brl(Math.round(total / n))} por pessoa</div>
+    <div class="peq" style="opacity:.9">${todos.length} lançamentos · ${S.dados.pessoas.length} pessoas · ${vendaPublicada() ? `valor da viagem <b>${brl(((S.dados.viagem.plano || {}).venda || {}).porVaga)}</b> por pessoa` : `≈ ${brl(Math.round(total / n))} por pessoa`}</div>
+    ${vendaPublicada() ? `<div class="peq" style="opacity:.75">média dos lançamentos ≈ ${brl(Math.round(total / n))} por pessoa (não é o que cada um paga)</div>` : ''}
   </div>
   <div class="cartao" style="padding:12px 16px">
     <div class="linha-bar" style="margin:0"><div class="barra" style="height:14px;display:flex">
@@ -2120,7 +2148,7 @@ function telaGrupo() {
   const zap = (v.plano || {}).whatsapp || '';
   let html = `${zap ? `<a class="btn lg" href="${esc(zap)}" target="_blank" rel="noopener" style="background:#25d366;border-color:#25d366;color:#fff;margin-bottom:14px">💬 Entrar no grupo do WhatsApp</a>` : ''}
   ${cartaoValor()}
-  ${org ? `<button class="btn lg" data-preco style="margin-bottom:14px">💰 Precificação (custo, margem e preço de venda)</button>` : ''}
+  ${org ? `<button class="btn lg" data-preco style="margin-bottom:14px">💰 Precificação (custo, margem e preço de venda)${(() => { const pl = v.plano || {}, x = pl.venda && pl.precif ? calcVenda(pl.precif, pl.isentos) : null; return x && x.venda.porVaga !== pl.venda.porVaga ? ' ⚠️ preço desatualizado' : ''; })()}</button>` : ''}
   ${org ? `<div class="cartao"><h2>💬 Grupo do WhatsApp</h2>
     <label class="cp" style="margin:0"><span>Cole o link de convite do grupo</span><input type="text" inputmode="url" id="v-zap" value="${esc(zap)}" placeholder="https://chat.whatsapp.com/…" autocapitalize="off"></label>
     <p class="dica" style="margin:6px 0 0">No WhatsApp: abra o grupo › toque no nome › <b>Convidar via link</b> › Copiar link. Para todos aparece o botão "Entrar no grupo do WhatsApp".</p></div>` : ''}

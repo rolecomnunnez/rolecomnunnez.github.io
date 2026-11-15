@@ -300,10 +300,13 @@ img,svg{max-width:100%}
 .alt-tit{font-size:.8rem;font-weight:700;color:var(--mut);margin:6px 2px 8px}
 .alt-grade{display:grid;grid-template-columns:minmax(0,1fr);gap:30px;align-items:stretch}
 @media (min-width:600px){.alt-grade{grid-template-columns:repeat(var(--n,2),minmax(0,1fr));gap:26px}}
-.alt-grade .cartao{margin:0}
+.alt-grade .cartao{margin:0;border:1px solid rgba(245,165,36,.5)}
 .alt-item{position:relative}
+/* linha fina que liga uma opção à outra, passando por trás do balão */
+.alt-item:not(:first-child)::before{content:"";position:absolute;top:-30px;height:30px;left:50%;width:1.5px;margin-left:-.75px;background:rgba(245,165,36,.7)}
+@media (min-width:600px){.alt-item:not(:first-child)::before{top:50%;left:-26px;width:26px;height:1.5px;margin:-.75px 0 0}}
 /* Balão "OU": mostra que as opções são excludentes (escolha uma só) */
-.alt-ou{position:absolute;top:-24px;left:50%;transform:translate(-50%,-50%);z-index:2;background:#f5a524;color:#101a3c;font-weight:800;font-size:.72rem;letter-spacing:.04em;padding:6px 7px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.25);border:2px solid var(--bg,#fff);pointer-events:none}
+.alt-ou{position:absolute;top:-15px;left:50%;transform:translate(-50%,-50%);z-index:2;background:#f5a524;color:#101a3c;font-weight:800;font-size:.72rem;letter-spacing:.04em;padding:6px 7px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.25);border:2px solid var(--bg,#fff);pointer-events:none}
 @media (min-width:600px){.alt-ou{top:50%;left:-13px}}
 /* "Ver como" (organizador olhando o app como outra pessoa): só leitura */
 body.ver-como #tela{pointer-events:none}

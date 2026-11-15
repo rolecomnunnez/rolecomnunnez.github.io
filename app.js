@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v67'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v68'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -1846,9 +1846,11 @@ function telaRoteiro() {
   const totalRot = semAlternativas(itens).reduce((s, g) => s + C.totalItem(g, S.dados), 0);
   // Com o preço publicado, quem não organiza vê o "Valor da viagem" (cartão abaixo) no lugar da soma dos custos.
   let html = (comoGrupo() && vendaPublicada()) ? '' : `<div class="cartao destaque">
-    <div class="peq">${vendaPublicada() ? '🔒 Custo real, só você vê (sem a margem)' : S.eu ? 'Sua parte na viagem (roteiro + gastos)' : 'Roteiro da viagem'}</div>
-    <div style="font-size:1.9rem;font-weight:800" class="num">${S.eu ? brl(meuTotal) : brl(totalRot)}</div>
-    <div class="peq">${itens.length} ${itens.length === 1 ? 'item' : 'itens'} no roteiro · custo de ${brl(totalRot)} no total${vendaPublicada() ? ` · preço de venda ${brl((((S.dados.viagem.plano || {}).venda || {}).porVaga))} por pessoa` : aPagar.length ? ` · ${aPagar.length} a pagar` : ''}</div>
+    <div class="peq">${vendaPublicada() ? '🔒 Custo do pacote, só você vê (sem a margem)' : S.eu ? 'Sua parte na viagem (roteiro + gastos)' : 'Roteiro da viagem'}</div>
+    <div style="font-size:1.9rem;font-weight:800" class="num">${vendaPublicada() ? brl(custoDoRoteiro()) : S.eu ? brl(meuTotal) : brl(totalRot)}</div>
+    <div class="peq">${vendaPublicada()
+      ? `${itens.length} itens · pacote ${brl(custoDoRoteiro())} · fora do pacote ${brl(semAlternativas(itens).filter(g => foraPacote(g) && !cadaUm(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0))} · pago na hora ${brl(itens.filter(cadaUm).reduce((s, g) => s + C.totalItem(g, S.dados), 0))}<br>preço de venda ${brl((((S.dados.viagem.plano || {}).venda || {}).porVaga))} por pessoa`
+      : `${itens.length} ${itens.length === 1 ? 'item' : 'itens'} no roteiro · custo de ${brl(totalRot)} no total${aPagar.length ? ` · ${aPagar.length} a pagar` : ''}`}</div>
   </div>`;
   html += cartaoValor();
   const zapRot = (S.dados.viagem.plano || {}).whatsapp;

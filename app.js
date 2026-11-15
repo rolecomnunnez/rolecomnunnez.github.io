@@ -1983,7 +1983,7 @@ function telaRoteiro() {
       // Resumo: quantos escolheram cada opção e quem ainda não escolheu nenhuma.
       const semEscolha = S.dados.pessoas.filter(p => ops.every(x => (x.ausentes || []).includes(p.id))).map(p => esc(p.nome.split(' ')[0]));
       const resumoAlt = ops.map(x => `<b>${esc(rotuloOpcao(x))}</b>: ${nVao(x)} ${nVao(x) === 1 ? 'pessoa' : 'pessoas'}`).join(' · ') + (semEscolha.length ? ` · <span class="neg">ainda não escolheram: ${semEscolha.join(', ')}</span>` : ' · <span class="pos">todos já escolheram ✓</span>') + (org ? ` <button class="btn mini" data-limpaalt="${esc(alt)}" style="margin-left:6px">🧹 Limpar escolhas</button>` : '');
-      html += `<div class="alt-comp"><div class="alt-tit">⚖️ Compare e escolha: ${ops.map(x => esc(rotuloOpcao(x))).join(' | ')}</div><div class="peq" style="margin:-4px 2px 8px">${resumoAlt}</div><div class="alt-grade">${ops.map(x => cartaoRot(x, ops)).join('')}</div></div>`;
+      html += `<div class="alt-comp"><div class="alt-tit">⚖️ Compare e escolha: ${ops.map(x => esc(rotuloOpcao(x))).join(' | ')}</div><div class="peq" style="margin:-4px 2px 8px">${resumoAlt}</div><div class="alt-grade" style="--n:${ops.length}">${ops.map((x, i) => `<div class="alt-item">${i ? '<span class="alt-ou" aria-label="ou">OU</span>' : ''}${cartaoRot(x, ops)}</div>`).join('')}</div></div>`;
     } else html += cartaoRot(g);
   });
   // devolução do carro alugado

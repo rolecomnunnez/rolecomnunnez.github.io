@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v61'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v62'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -1874,7 +1874,10 @@ function telaRoteiro() {
     (ops || [g]).forEach(x => trechos.filter(t => t.antes === x.id).forEach(t => { html += htmlTrecho(t); }));
     if (ops && ops.length > 1) {
       ops.forEach(x => feitos.add(x.id));
-      html += `<div class="alt-comp"><div class="alt-tit">⚖️ Compare e escolha: ${ops.map(x => esc(rotuloOpcao(x))).join(' | ')}</div><div class="alt-grade">${ops.map(x => cartaoRot(x, ops)).join('')}</div></div>`;
+      // Resumo: quantos escolheram cada opção e quem ainda não escolheu nenhuma.
+      const semEscolha = S.dados.pessoas.filter(p => ops.every(x => (x.ausentes || []).includes(p.id))).map(p => esc(p.nome.split(' ')[0]));
+      const resumoAlt = ops.map(x => `<b>${esc(rotuloOpcao(x))}</b>: ${nVao(x)} ${nVao(x) === 1 ? 'pessoa' : 'pessoas'}`).join(' · ') + (semEscolha.length ? ` · <span class="neg">ainda não escolheram: ${semEscolha.join(', ')}</span>` : ' · <span class="pos">todos já escolheram ✓</span>');
+      html += `<div class="alt-comp"><div class="alt-tit">⚖️ Compare e escolha: ${ops.map(x => esc(rotuloOpcao(x))).join(' | ')}</div><div class="peq" style="margin:-4px 2px 8px">${resumoAlt}</div><div class="alt-grade">${ops.map(x => cartaoRot(x, ops)).join('')}</div></div>`;
     } else html += cartaoRot(g);
   });
   // devolução do carro alugado

@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v53'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v54'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -121,8 +121,11 @@ function toast(msg) {
 /* ---------- comunicação com a planilha (ou modo demonstração) ---------- */
 async function chamar(p) {
   if (DEMO) return demo(JSON.parse(JSON.stringify(p)));
-  const r = await fetch(CFG.API_URL, { method: 'POST', body: JSON.stringify(p) });
-  const j = await r.json();
+  // Sem resposta em 60 s, desiste (antes ficava "sincronizando…" para sempre); o que mudou fica guardado e é reenviado.
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 60000);
+  let j;
+  try { const r = await fetch(CFG.API_URL, { method: 'POST', body: JSON.stringify(p), signal: ctl.signal }); j = await r.json(); }
+  finally { clearTimeout(t); }
   if (!j.ok) { const e = new Error(j.erro || 'Erro'); e.servidor = true; e.login = !!j.login; e.datas = j.datas || []; throw e; }
   return j;
 }
@@ -270,7 +273,12 @@ async function enviar() {
     alvo.erro = e.servidor ? e.message : 'sem internet';
   } finally {
     alvo.enviando = false;
-    if (S === alvo) { guardar(); render(); if (S.fila.length && !S.erro) setTimeout(enviar, 300); }
+    if (S === alvo) {
+      guardar(); render();
+      if (S.fila.length && !S.erro) setTimeout(enviar, 300);
+      // Falhou (sem sinal, demorou demais): tenta de novo sozinho em 15 s, sem ficar pedindo login.
+      else if (S.fila.length && !alvo.login && !alvo._rt) alvo._rt = setTimeout(() => { alvo._rt = 0; if (S === alvo) { alvo.erro = ''; enviar(); } }, 15000);
+    }
   }
 }
 
@@ -295,7 +303,7 @@ function status() {
   if (!S || S.login) { el.classList.add('oculto'); return; }
   el.classList.remove('oculto');
   const n = S.fila.length;
-  el.textContent = S.enviando ? 'sincronizando…' : n ? `${n} para enviar` : S.erro ? 'offline' : DEMO ? 'demonstração' : 'salvo ✓';
+  el.textContent = S.enviando ? 'sincronizando…' : n ? `${n} para enviar` : S.erro ? 'offline · tentando de novo' : DEMO ? 'demonstração' : 'salvo ✓';
 }
 
 /* ---------- abrir / sair de viagem ---------- */

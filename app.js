@@ -841,7 +841,7 @@ function secaoPacote(eu, meusIds, parteDe) {
     <div class="peq" style="display:flex;justify-content:space-between;padding:0 0 10px"><span>Já pago</span><span class="num pos">${brl(pg)}</span></div>
     <div class="peq" style="display:flex;justify-content:space-between;padding:0 0 10px"><span>Falta</span><span class="num ${falta ? 'neg' : 'pos'}">${falta ? brl(falta) : 'tudo pago 🎉'}</span></div>
     ${(() => { const ag = agendaDe(meusIds); return ag && ag.linhas.length ? `<div class="peq mut" style="border-top:1px solid var(--lin);padding-top:10px">📅 Pagamentos antecipados</div>${htmlAgenda(ag)}${ag.vencido ? `<p class="neg" style="margin:0 0 10px"><b>Vencido: ${brl(ag.vencido)}</b></p>` : ''}` : ''; })()}
-    ${falta && !euOrg && orgP && orgP.id !== eu ? `<button class="btn pri lg" id="pg-pacote" data-falta="${falta}" data-para="${esc(orgP.id)}" style="margin-bottom:12px">Pagar ${brl(falta)} com Pix</button>` : ''}</div>`;
+    ${falta && !euOrg && orgP && orgP.id !== eu ? `<button class="btn pri lg" id="pg-pacote" data-falta="${falta}" data-para="${esc(orgP.id)}" style="margin-bottom:12px">💳 Como pagar · ${brl(falta)}</button>` : ''}</div>`;
 }
 
 /* Aba Acerto: cada um vê só o que é seu. A situação de todo mundo fica no Resumo. */
@@ -926,7 +926,7 @@ function telaAcerto() {
   $$('[data-cobrarm]').forEach(b => b.onclick = () => cobrarWhats(minhas[b.dataset.cobrarm]));
   $$('[data-cobrart]').forEach(b => b.onclick = () => cobrarWhats(ag.transf[b.dataset.cobrart]));
   $$('[data-pagot]').forEach(b => b.onclick = () => formJaPaguei(ag.transf[b.dataset.pagot], 'org'));
-  if ($('#pg-pacote')) $('#pg-pacote').onclick = e => janelaPix({ de: S.eu, para: e.currentTarget.dataset.para, valor: Number(e.currentTarget.dataset.falta) });
+  if ($('#pg-pacote')) $('#pg-pacote').onclick = e => janelaComoPagar({ de: S.eu, para: e.currentTarget.dataset.para, valor: Number(e.currentTarget.dataset.falta) });
   $$('[data-pagitem]').forEach(b => b.onclick = () => pagarItem(S.dados.gastos.find(g => g.id === b.dataset.pagitem), Number(b.dataset.falta)));
   $$('[data-pagom]').forEach(b => b.onclick = () => { const t = minhas[b.dataset.pagom]; formJaPaguei(t, t.de === resp ? 'paguei' : 'recebi'); });
   $$('[data-recebi]').forEach(b => b.onclick = () => { const a = S.dados.acertos.find(x => x.id === b.dataset.recebi); op({ op: 'salvar', tipo: 'acerto', item: { ...a, status: 'confirmado', confirmadoPor: S.eu } }); toast('Recebimento confirmado ✓'); });
@@ -2851,6 +2851,17 @@ function formAcerto() {
     if (!souOrg() && !legado() && fd.get('de') !== S.eu && fd.get('para') !== S.eu) { e.preventDefault(); return toast('Você só registra pagamento que você fez ou recebeu.'); }
     registrarPix(fd.get('de'), fd.get('para'), v, obsForma(fd, String(fd.get('obs')).trim()), undefined, fd.get('data'));
   };
+}
+
+// Escolha da forma de pagar o valor da viagem: cartão de crédito (combinado com o organizador) ou Pix.
+function janelaComoPagar(t) {
+  const org = pessoa(t.para);
+  const f = janela('Como pagar', `
+    <p style="margin-top:0;text-align:center">Valor a pagar: <b class="num">${brl(t.valor)}</b></p>
+    <div class="cartao" style="margin:0 0 10px"><b>💳 Cartão de crédito</b><div class="peq mut">Fale com ${org ? '<b>' + esc(org.nome) + '</b>, o organizador,' : 'o organizador'} para combinar o pagamento no cartão.</div></div>
+    <div class="cartao" style="margin:0"><b>⚡ Pix</b><div class="peq mut">Pague na hora com o QR Code ou o copia e cola.</div></div>`,
+    `<button class="btn" value="x" formnovalidate>Fechar</button><button class="btn pri" value="pix">Pagar com Pix</button>`);
+  f.onsubmit = e => { if (e.submitter && e.submitter.value === 'pix') { e.preventDefault(); janelaPix(t); } };
 }
 
 function janelaPix(t) {

@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v63'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v64'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -1553,7 +1553,8 @@ function itensRoteiro() {
 const altDe = g => (g.info || {}).alt || '';
 const rotuloOpcao = g => (g.info || {}).opcao || g.descricao || 'Opção';
 const opcoesDe = g => altDe(g) ? itensRoteiro().filter(x => altDe(x) === altDe(g)) : [g];
-const nVao = g => Object.keys(C.dividir(g, S.dados)).length;
+// Quantos escolheram/vão neste item (pela lista de ausentes; o cálculo de divisão se espalha por todos quando ninguém foi marcado, e não serve para contar).
+const nVao = g => (S.dados.pessoas || []).filter(p => !(g.ausentes || []).includes(p.id)).length;
 // Sem as opções repetidas: de cada grupo fica só a que tem mais gente (empate: a primeira). Para trajeto, agenda e somas do pacote.
 function semAlternativas(lista) {
   const ficou = {};
@@ -1836,7 +1837,7 @@ function telaRoteiro() {
   // Cartão de um item; "ops" (opções Hotel | Airbnb) muda o rótulo, o valor por pessoa e os botões.
   const cartaoRot = (g, ops) => {
     const cat = C.CAT[g.categoria] || C.CAT.outros;
-    const partes = C.dividir(g, S.dados), n = Object.keys(partes).length;
+    const partes = C.dividir(g, S.dados), n = ops ? nVao(g) : Object.keys(partes).length;
     const vou = !(g.ausentes || []).includes(S.eu);
     const fora = S.dados.pessoas.filter(p => (g.ausentes || []).includes(p.id)).map(p => p.nome.split(' ')[0]);
     return `<div class="cartao" data-rot="${esc(g.id)}">

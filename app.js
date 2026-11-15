@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v70'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v71'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -814,6 +814,7 @@ const cobre = id => S.dados.pessoas.filter(p => p.id !== id && responsavel(p.id)
 
 // Acerto com preço publicado: itens do roteiro (com a margem dentro, para o grupo), valor da viagem, já pago e falta + Pix para o organizador.
 function secaoPacote(eu, meusIds, parteDe) {
+  if (meusIds.every(isento)) return '<div class="titulo-sec">💳 Valor da viagem</div>' + cartaoParaIsento(); // quem não paga vê o que o grupo vê
   const pl = S.dados.viagem.plano || {}, vd = pl.venda, rec = pl.recebido || {};
   const itens = itensRoteiro().filter(g => parteDe(g) && !(foraPacote(g) && !cadaUm(g))); // itens tirados do pacote não aparecem aqui
   const devido = meusIds.reduce((s, id) => s + devidoDe(id), 0);
@@ -1085,11 +1086,22 @@ const totalVit = (g, paraOutros) => {
 };
 const vendaPublicada = () => !!((S.dados.viagem.plano || {}).venda || {}).porVaga;
 
+// Para quem não paga o pacote (ex.: o organizador): mostra o que o grupo vê (preço por pessoa e as cobranças antecipadas), sem valores pagos.
+function cartaoParaIsento() {
+  const vd = (S.dados.viagem.plano || {}).venda; if (!vd || !vd.porVaga) return '';
+  const outro = (S.dados.pessoas || []).find(p => !isento(p.id));
+  const ag = outro ? agendaDe([outro.id], true) : null;
+  return `<div class="cartao"><h2>💳 Valor da viagem <span class="mut peq">como o grupo vê</span></h2>
+    <div style="font-size:1.7rem;font-weight:800" class="num">${brl(vd.porVaga)}</div>
+    <p class="mut peq" style="margin:0 0 8px">Valor por pessoa. Você não paga o pacote (fica fora das vagas e dos recebimentos).</p>
+    ${ag && ag.linhas.length ? `<div class="peq mut">📅 Pagamentos antecipados</div>${htmlAgenda(ag)}` : ''}</div>`;
+}
+
 // Cartão que cada participante vê: quanto paga, sinal, parcelas, o que já pagou e o que falta.
 function cartaoValor() {
   const pl = S.dados.viagem.plano || {}, vd = pl.venda, eu = pessoa(S.eu);
   if (!vd || !vd.porVaga || !eu) return '';
-  if (isento(S.eu)) return `<div class="cartao"><h2>💳 Valor da viagem</h2><p class="mut" style="margin:0">Você não paga o pacote da viagem.</p></div>`;
+  if (isento(S.eu)) return cartaoParaIsento();
   const vagas = Number(eu.peso) > 0 ? Number(eu.peso) : 1;
   const devido = devidoDe(S.eu), pg =(pl.recebido || {})[S.eu] || 0, falta = Math.max(0, devido - pg);
   const { sinal, parcelas } = C.parcelar(devido, vd.sinalPct, vd.parcelas);
@@ -1156,17 +1168,17 @@ function valorCobranca(c, pid) {
   return Math.ceil(devidoDe(pid) * n / 100 / 500) * 500; // sem itens: % do valor da viagem da pessoa
 }
 // Agenda de quem paga por "ids" (a pessoa e quem ela cobre): cada cobrança com valor, quanto já foi pago e se está atrasada.
-function agendaDe(ids) {
+function agendaDe(ids, neutro) { // neutro: mostra as cobranças sem o que a pessoa já pagou (visão do grupo, para quem não paga)
   const pl = S.dados.viagem.plano || {}, vd = pl.venda, cs = cobrancas();
   if (!vd || !vd.porVaga || !cs.length) return null;
   const mapa = {}; let devido = 0, recebido = 0;
   ids.forEach(pid => {
     const p = pessoa(pid); if (!p) return;
     const d = devidoDe(pid); devido += d;
-    let falta = d, r = (pl.recebido || {})[pid] || 0; recebido += r;
+    let falta = d, r = neutro ? 0 : ((pl.recebido || {})[pid] || 0); recebido += r;
     cs.forEach(c => {
       if (cobrancaAParte(c)) { // à parte: valor real, fora do que a pessoa deve do pacote; "pagou" marcado pelo organizador
-        const v = valorCobranca(c, pid), pg = ((pl.pagoCob || {})[c.id] || []).includes(pid) ? v : 0;
+        const v = valorCobranca(c, pid), pg = !neutro && ((pl.pagoCob || {})[c.id] || []).includes(pid) ? v : 0;
         const m = mapa[c.id] || (mapa[c.id] = { c, valor: 0, pago: 0, aparte: true }); m.valor += v; m.pago += pg;
         return;
       }

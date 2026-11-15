@@ -1395,7 +1395,8 @@ const ehRoteiro = g => g.roteiro === 'sim';
 const linkMapa = local => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(local);
 function quando(g) {
   if (!g.data) return 'Data a definir';
-  return fmtDia(g.data) + (g.hora ? ' às ' + g.hora : '') + (g.ate ? ' até ' + fmtDia(g.ate) : '');
+  // "até" só faz sentido em hospedagem (check-out) e aluguel (devolução); em passeio é a data de um dia só.
+  return fmtDia(g.data) + (g.hora ? ' às ' + g.hora : '') + (g.ate && ['hospedagem', 'aluguel'].includes(g.categoria) ? ' até ' + fmtDia(g.ate) : '');
 }
 function itensRoteiro() {
   // mesma ordem do trajeto: sem hora, retirada do carro vem de manhã e check-in à tarde
@@ -1890,7 +1891,7 @@ function formRoteiro(g) {
     const noPacote = pp && !!fd.get('pacote');
     if (noPacote) infoNova.pacote = true;
     const item = { ...g, roteiro: 'sim', categoria: cat, descricao: fraseNormal(fd.get('descricao')), local: String(fd.get('local')).trim(), link: /^https?:\/\//i.test(link) ? link : (link ? 'https://' + link : ''),
-      data: fd.get('data'), hora: fd.get('hora'), ate: fd.get('ate') || '', valor, moeda: 'BRL', cambio: 1, valorBRL: valor, modo: pp ? 'porPessoa' : fd.get('modo'),
+      data: fd.get('data'), hora: fd.get('hora'), ate: ['hospedagem', 'aluguel'].includes(cat) ? (fd.get('ate') || '') : '', valor, moeda: 'BRL', cambio: 1, valorBRL: valor, modo: pp ? 'porPessoa' : fd.get('modo'),
       status: pp ? (noPacote ? 'previsto' : 'cada_um') : usaPartes ? (somaPags >= C.centavos(valor) ? '' : 'previsto') : sit === 'pago' ? '' : 'previsto',
       pagoPor: pp ? '' : usaPartes ? pags[0].pagoPor : sit === 'pago' ? fd.get('pagoPor') : '',
       pagamentos: usaPartes ? pags : [], anexos, info: infoNova, obs: String(fd.get('obs')).trim() };

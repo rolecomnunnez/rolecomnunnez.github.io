@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v60'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v61'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -1206,7 +1206,7 @@ function telaPreco() {
   <div class="cartao"><h2>💰 Precificação <span class="mut peq">só você vê</span></h2>
     <p class="mut peq" style="margin-top:-4px">Coloque o custo total da viagem e a margem que quer ganhar. O app calcula o preço por pessoa. Os participantes veem só o preço, nunca o custo nem a margem.</p>
     <label class="cp"><span>Custo total da viagem (R$)</span><input type="text" inputmode="decimal" data-pr="custo" value="${esc(fmtNum(pr.custo))}" placeholder="Tudo o que você paga aos fornecedores"></label>
-    ${(() => { const its = itensRoteiro().filter(g => !cadaUm(g)), dentro = its.filter(g => !foraPacote(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0), fora = its.filter(foraPacote).reduce((s, g) => s + C.totalItem(g, S.dados), 0);
+    ${(() => { const its = semAlternativas(itensRoteiro()).filter(g => !cadaUm(g)), dentro = its.filter(g => !foraPacote(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0), fora = its.filter(foraPacote).reduce((s, g) => s + C.totalItem(g, S.dados), 0);
       return its.length ? `<p class="dica" style="margin:-4px 0 10px">Itens do Roteiro no pacote somam <b>${brl(dentro)}</b>${fora ? ` (fora do pacote: ${brl(fora)})` : ''}. ${dentro && C.centavos(pr.custo) !== dentro ? `<a href="#" id="pr-soma">Usar ${brl(dentro)} como custo</a>` : ''}</p>` : ''; })()}
     <div class="grade2">
       <label class="cp"><span>Margem de lucro</span><select data-pr="margemTipo"><option value="pct" ${tipo === 'pct' ? 'selected' : ''}>% sobre o custo</option><option value="rs" ${tipo === 'rs' ? 'selected' : ''}>R$ fixo</option></select></label>
@@ -1276,7 +1276,7 @@ function telaPreco() {
   $$('li[data-rec]').forEach(li => li.onclick = () => formRecebido(li.dataset.rec));
   if ($('#cob-add')) $('#cob-add').onclick = () => formCobranca();
   $$('li[data-cob]').forEach(li => li.onclick = () => formCobranca(cobrancas().find(c => c.id === li.dataset.cob)));
-  if ($('#pr-soma')) $('#pr-soma').onclick = e => { e.preventDefault(); const t = itensRoteiro().filter(g => !cadaUm(g) && !foraPacote(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0); salvarPlano(p => { p.precif = { ...(p.precif || {}), custo: t / 100 }; if (p.venda) { const x = calcVenda(p.precif, p.isentos); if (x) p.venda = x.venda; } }); };
+  if ($('#pr-soma')) $('#pr-soma').onclick = e => { e.preventDefault(); const t = semAlternativas(itensRoteiro()).filter(g => !cadaUm(g) && !foraPacote(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0); salvarPlano(p => { p.precif = { ...(p.precif || {}), custo: t / 100 }; if (p.venda) { const x = calcVenda(p.precif, p.isentos); if (x) p.venda = x.venda; } }); };
   if ($('#pr-ver')) $('#pr-ver').onclick = () => { VER_COMO = $('#pr-como').value; irAba('saldos'); };
 }
 
@@ -1549,6 +1549,21 @@ function itensRoteiro() {
   return (S.dados.gastos || []).filter(ehRoteiro).sort((a, b) => (a.data || '9999').localeCompare(b.data || '9999') || h(a).localeCompare(h(b)));
 }
 
+/* ---------- Opções para comparar (Hotel | Airbnb): itens do roteiro ligados por info.alt, cada um com seu valor e seus "Vou" ---------- */
+const altDe = g => (g.info || {}).alt || '';
+const rotuloOpcao = g => (g.info || {}).opcao || g.descricao || 'Opção';
+const opcoesDe = g => altDe(g) ? itensRoteiro().filter(x => altDe(x) === altDe(g)) : [g];
+const nVao = g => Object.keys(C.dividir(g, S.dados)).length;
+// Sem as opções repetidas: de cada grupo fica só a que tem mais gente (empate: a primeira). Para trajeto, agenda e somas do pacote.
+function semAlternativas(lista) {
+  const ficou = {};
+  return lista.filter(g => {
+    const a = altDe(g); if (!a) return true;
+    if (ficou[a] === undefined) { const ops = lista.filter(x => altDe(x) === a); ficou[a] = ops.reduce((b, x) => nVao(x) > nVao(b) ? x : b, ops[0]).id; }
+    return ficou[a] === g.id;
+  });
+}
+
 /* ---------- Trajeto: liga os pontos do roteiro pela data e calcula km e tempo de carro ---------- */
 let ROTAS = ls.get('rv:rotas', {}); // "origem|destino" -> { km, min } ou { erro }
 let buscandoRotas = false;
@@ -1556,7 +1571,7 @@ const chaveRota = (a, b) => a.trim().toLowerCase() + '|' + b.trim().toLowerCase(
 const fmtDur = m => m < 60 ? m + ' min' : Math.floor(m / 60) + 'h' + (m % 60 ? String(m % 60).padStart(2, '0') : '');
 const HORA_PADRAO = { aluguel: '06:00', hospedagem: '14:00', devolucao: '18:00' };
 function trechosRoteiro() {
-  const itens = itensRoteiro().filter(g => g.local && g.data);
+  const itens = semAlternativas(itensRoteiro()).filter(g => g.local && g.data);
   const pts = itens.map(g => ({ g, chave: g.id, data: g.data, hora: g.hora || HORA_PADRAO[g.categoria] || '12:00', local: g.local, tipo: g.categoria }));
   // devolução do carro alugado (no mesmo lugar da retirada)
   itens.filter(g => g.categoria === 'aluguel' && g.ate).forEach(g => pts.push({ g, chave: 'dev-' + g.id, data: g.ate, hora: HORA_PADRAO.devolucao, local: g.local, tipo: 'devolucao' }));
@@ -1617,7 +1632,7 @@ function exportarAgenda() {
     if (desc) linhas.push('DESCRIPTION:' + txt(desc));
     linhas.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + txt(titulo), 'TRIGGER:' + alarme, 'END:VALARM', 'END:VEVENT');
   };
-  itensRoteiro().filter(g => g.data).forEach(g => {
+  semAlternativas(itensRoteiro()).filter(g => g.data).forEach(g => {
     const cat = C.CAT[g.categoria] || C.CAT.outros, parte = C.dividir(g, S.dados)[eu];
     const i = g.info || {};
     const desc = [g.descricao + ' · ' + v.nome,
@@ -1794,7 +1809,7 @@ function telaRoteiro() {
   const org = souOrg(), itens = itensRoteiro();
   const minhas = C.partes(S.dados, () => true), meuTotal = minhas[S.eu] || 0; // Roteiro: valores reais (o organizador vê o custo)
   const aPagar = itens.filter(g => !pago(g) && !cadaUm(g));
-  const totalRot = itens.reduce((s, g) => s + C.totalItem(g, S.dados), 0);
+  const totalRot = semAlternativas(itens).reduce((s, g) => s + C.totalItem(g, S.dados), 0);
   // Com o preço publicado, quem não organiza vê o "Valor da viagem" (cartão abaixo) no lugar da soma dos custos.
   let html = (comoGrupo() && vendaPublicada()) ? '' : `<div class="cartao destaque">
     <div class="peq">${vendaPublicada() ? '🔒 Custo real, só você vê (sem a margem)' : S.eu ? 'Sua parte na viagem (roteiro + gastos)' : 'Roteiro da viagem'}</div>
@@ -1817,18 +1832,18 @@ function telaRoteiro() {
       <div style="flex:1;min-width:180px">🚗 <b>${comKm.length ? fmtNum(Math.round(km)) + ' km de estrada' : 'Calculando o trajeto…'}</b>${comKm.length ? ` <span class="mut peq">(≈ ${fmtDur(min)} dirigindo${comKm.length < trechos.length ? ', faltam trechos' : ''})</span>` : ''}</div>
       <a class="btn mini" href="${esc(mapa)}" target="_blank" rel="noopener">🗺️ Trajeto no Google Maps</a></div>`;
   }
-  let diaAtual = null;
-  itens.forEach(g => {
-    if ((g.data || '') !== diaAtual) { diaAtual = g.data || ''; html += `<div class="dia"><span>${g.data ? fmtDia(g.data) : 'Sem data'}</span>${g.data ? `<span data-clima="${esc(g.data)}" style="font-weight:600"></span>` : ''}</div>`; }
-    trechos.filter(t => t.antes === g.id).forEach(t => { html += htmlTrecho(t); });
+  let diaAtual = null; const feitos = new Set();
+  // Cartão de um item; "ops" (opções Hotel | Airbnb) muda o rótulo, o valor por pessoa e os botões.
+  const cartaoRot = (g, ops) => {
     const cat = C.CAT[g.categoria] || C.CAT.outros;
     const partes = C.dividir(g, S.dados), n = Object.keys(partes).length;
     const vou = !(g.ausentes || []).includes(S.eu);
     const fora = S.dados.pessoas.filter(p => (g.ausentes || []).includes(p.id)).map(p => p.nome.split(' ')[0]);
-    html += `<div class="cartao" data-rot="${esc(g.id)}">
+    return `<div class="cartao" data-rot="${esc(g.id)}">
       <div style="display:flex;gap:12px;align-items:flex-start">
         <span class="ico" style="width:42px;height:42px;border-radius:12px;background:var(--suave);display:grid;place-items:center;font-size:1.3rem;flex:none">${cat.icone}</span>
         <div style="flex:1;min-width:0">
+          ${ops ? `<div style="margin-bottom:4px"><span class="selo" style="background:var(--laranja);color:#101a3c;font-weight:800">${esc(rotuloOpcao(g))}</span></div>` : ''}
           <b style="font-size:1.05rem">${esc(g.descricao || cat.nome)}</b> ${selo(g)}
           <div class="peq" style="margin-top:4px">🕒 ${quando(g)}</div>
           ${g.local ? `<div class="peq">📍 <a href="${esc(linkMapa(g.local))}" target="_blank" rel="noopener">${esc(g.local)}</a></div>` : ''}
@@ -1838,15 +1853,29 @@ function telaRoteiro() {
           ${htmlInfo(g)}
           <div class="peq" style="margin-top:6px">💰 ${cadaUm(g)
             ? (() => { const ent = Math.round(C.totalItem(g, S.dados) / C.centavos(g.valor)); return `<b class="num">${brl(C.centavos(g.valor))} por pessoa</b>, pago na hora · ${ent} ${ent === 1 ? 'entrada' : 'entradas'} (≈ ${brl(C.totalItem(g, S.dados))} no grupo)${partes[S.eu] ? ` · <b>você leva ${brl(partes[S.eu])}</b>` : ''}`; })()
-            : `<b class="num">${brl(totalVit(g))}</b> para ${n} ${n === 1 ? 'pessoa' : 'pessoas'}${g.modo === 'porPessoa' ? ` (${brl(vit(g, C.centavos(g.valor)))} por pessoa)` : ''}${partes[S.eu] ? ` · <b>sua parte ${brl(vit(g, partes[S.eu]))}</b>` : ''}`}</div>
-          ${fora.length ? `<div class="peq mut">Não vão: ${esc(fora.join(', '))}</div>` : ''}
+            : ops && !n ? `<b class="num">${brl(totalVit(g))}</b> no total · ≈ <b class="num">${brl(Math.round(totalVit(g) / Math.max(1, S.dados.pessoas.length)))}</b> por pessoa se todos forem · ninguém escolheu ainda`
+            : `<b class="num">${brl(totalVit(g))}</b> para ${n} ${n === 1 ? 'pessoa' : 'pessoas'}${g.modo === 'porPessoa' ? ` (${brl(vit(g, C.centavos(g.valor)))} por pessoa)` : ''}${partes[S.eu] ? ` · <b>sua parte ${brl(vit(g, partes[S.eu]))}</b>` : ''}${ops && n ? ` · ≈ ${brl(Math.round(totalVit(g) / n))} por pessoa` : ''}`}</div>
+          ${fora.length && !ops ? `<div class="peq mut">Não vão: ${esc(fora.join(', '))}</div>` : ''}
+          ${ops ? `<div class="peq mut">👥 ${n ? S.dados.pessoas.filter(p => !(g.ausentes || []).includes(p.id)).map(p => esc(p.nome.split(' ')[0])).join(', ') + (n === 1 ? ' escolheu' : ' escolheram') : 'Ninguém escolheu essa opção ainda'}</div>` : ''}
         </div>
       </div>
       <div class="btns" style="margin-top:10px">
-        ${S.eu ? `<button class="btn mini ${vou ? 'pri' : ''}" data-vou="${esc(g.id)}" data-v="1">✅ Vou</button><button class="btn mini ${vou ? '' : 'pri'}" data-vou="${esc(g.id)}" data-v="0">Não vou</button>` : ''}
+        ${S.eu ? `<button class="btn mini ${vou ? 'pri' : ''}" data-vou="${esc(g.id)}" data-v="1">✅ ${ops ? 'Vou nesta' : 'Vou'}</button><button class="btn mini ${vou ? '' : 'pri'}" data-vou="${esc(g.id)}" data-v="0">Não vou</button>` : ''}
         ${org ? `<button class="btn mini" data-editrot="${esc(g.id)}">Editar</button>` : ''}
+        ${org && ops ? `<button class="btn mini pri" data-escolher="${esc(g.id)}">🏁 Escolher esta</button>` : ''}
+        ${org && !ops && g.categoria === 'hospedagem' ? `<button class="btn mini" data-addalt="${esc(g.id)}">🆚 Adicionar opção (Airbnb)</button>` : ''}
         ${org && !cadaUm(g) ? `<button class="btn mini" data-fora="${esc(g.id)}">${foraPacote(g) ? '↩ Voltar ao pacote' : '🚫 Tirar do pacote'}</button>` : ''}
       </div></div>`;
+  };
+  itens.forEach(g => {
+    if (feitos.has(g.id)) return;
+    if ((g.data || '') !== diaAtual) { diaAtual = g.data || ''; html += `<div class="dia"><span>${g.data ? fmtDia(g.data) : 'Sem data'}</span>${g.data ? `<span data-clima="${esc(g.data)}" style="font-weight:600"></span>` : ''}</div>`; }
+    const alt = altDe(g), ops = alt ? itens.filter(x => altDe(x) === alt) : null;
+    (ops || [g]).forEach(x => trechos.filter(t => t.antes === x.id).forEach(t => { html += htmlTrecho(t); }));
+    if (ops && ops.length > 1) {
+      ops.forEach(x => feitos.add(x.id));
+      html += `<div class="alt-comp"><div class="alt-tit">⚖️ Compare e escolha: ${ops.map(x => esc(rotuloOpcao(x))).join(' | ')}</div><div class="alt-grade">${ops.map(x => cartaoRot(x, ops)).join('')}</div></div>`;
+    } else html += cartaoRot(g);
   });
   // devolução do carro alugado
   pontos.filter(p => p.tipo === 'devolucao').forEach(p => {
@@ -1858,7 +1887,31 @@ function telaRoteiro() {
   buscarRotas(trechos);
   ligarEnquetes();
   preencherClima();
-  $$('[data-vou]').forEach(b => b.onclick = () => op({ op: 'presenca', id: b.dataset.vou, pessoa: S.eu, vai: b.dataset.v === '1' }));
+  $$('[data-vou]').forEach(b => b.onclick = () => {
+    const g = S.dados.gastos.find(x => x.id === b.dataset.vou), vai = b.dataset.v === '1';
+    op({ op: 'presenca', id: b.dataset.vou, pessoa: S.eu, vai });
+    // Opções Hotel | Airbnb: quem vai em uma sai das outras (escolhe uma só).
+    if (vai && g && altDe(g)) opcoesDe(g).filter(x => x.id !== g.id && !(x.ausentes || []).includes(S.eu)).forEach(x => op({ op: 'presenca', id: x.id, pessoa: S.eu, vai: false }));
+  });
+  // Cria a 2ª opção (Airbnb) ao lado da hospedagem: copia datas e local; ninguém escolhe nada ainda (todos começam em "Não vou").
+  $$('[data-addalt]').forEach(b => b.onclick = () => {
+    const g = S.dados.gastos.find(x => x.id === b.dataset.addalt), gid = uid('ALT'), todos = S.dados.pessoas.map(p => p.id);
+    const A = { ...g, info: { ...(g.info || {}), alt: gid, opcao: (g.info || {}).opcao || 'Hotel' }, ausentes: todos };
+    const B = { ...g, id: uid('G'), descricao: '', link: '', obs: '', valor: '', valorBRL: '', anexos: [], pagamentos: [], status: 'previsto', pagoPor: '', info: { alt: gid, opcao: 'Airbnb' }, ausentes: todos, criadoPor: S.eu };
+    op({ op: 'salvar', tipo: 'gasto', item: A }); op({ op: 'salvar', tipo: 'gasto', item: B });
+    formRoteiro(B);
+  });
+  $$('[data-escolher]').forEach(b => b.onclick = () => {
+    const g = S.dados.gastos.find(x => x.id === b.dataset.escolher), outras = opcoesDe(g).filter(x => x.id !== g.id);
+    if (!confirm(`Ficar com "${g.descricao || rotuloOpcao(g)}"?\n\nA(s) outra(s) opção(ões) será(ão) excluída(s): ${outras.map(x => x.descricao || rotuloOpcao(x)).join(', ')}.`)) return;
+    const todosVao = confirm('Quem ainda não escolheu nenhuma opção deve ir nesta?\n\nOK = todos vão nesta.\nCancelar = só vai quem já marcou "Vou" em alguma opção.');
+    const aus = new Set(todosVao ? [] : S.dados.pessoas.map(p => p.id));
+    if (!todosVao) opcoesDe(g).forEach(o => S.dados.pessoas.forEach(p => { if (!(o.ausentes || []).includes(p.id)) aus.delete(p.id); }));
+    const info = { ...(g.info || {}) }; delete info.alt; delete info.opcao;
+    op({ op: 'salvar', tipo: 'gasto', item: { ...g, info, ausentes: [...aus] } });
+    outras.forEach(o => op({ op: 'excluir', tipo: 'gasto', id: o.id }));
+    toast('Opção escolhida ✓');
+  });
   $$('[data-editrot]').forEach(b => b.onclick = () => formRoteiro(S.dados.gastos.find(g => g.id === b.dataset.editrot)));
   $$('[data-fora]').forEach(b => b.onclick = () => {
     const g = S.dados.gastos.find(x => x.id === b.dataset.fora), info = { ...(g.info || {}) };
@@ -1908,6 +1961,7 @@ function formRoteiro(g) {
   const sitInicial = pags.length ? 'partes' : pago(g) ? 'pago' : 'previsto';
   const f = janela(novo ? 'Adicionar ao roteiro' : 'Editar item do roteiro', `
     <div class="chips" id="rot-cats" style="margin-bottom:12px">${CATS_ROTEIRO.map(c => `<button type="button" class="chip" data-c="${c}" aria-pressed="${c === cat}">${C.CAT[c].icone} ${NOME_ROTEIRO[c]}</button>`).join('')}</div>
+    ${altDe(g) ? `<label class="cp"><span>Nome da opção (Hotel, Airbnb…)</span><input type="text" name="opcao" value="${esc((g.info || {}).opcao || '')}" placeholder="Ex.: Airbnb"></label>` : ''}
     <label class="cp"><span>O que é</span><input type="text" name="descricao" required value="${esc(g.descricao)}" placeholder="Ex.: Passeio de barco na Chapada" autocapitalize="sentences" data-frase></label>
     <label class="cp"><span id="rot-rot-local">Onde (endereço ou nome do lugar)</span><input type="text" name="local" value="${esc(g.local)}" placeholder="Ex.: Chapada dos Guimarães, MT"></label>
     <p class="dica" style="margin-top:-8px">Com cidade e estado, o app calcula os km e o tempo de carro entre os pontos do roteiro.</p>
@@ -2033,6 +2087,7 @@ function formRoteiro(g) {
     const usaPartes = !pp && sit === 'partes';
     const infoNova = {}; ['checkin', 'checkout', 'wifi', 'wifiSenha', 'contato', 'instrucoes'].forEach(k => { const x = String(fd.get('i_' + k) || '').trim(); if (x) infoNova[k] = x; });
     if ((g.info || {}).fora) infoNova.fora = true; // "fora do pacote" é marcado pelo botão do cartão; não perde ao editar
+    if (altDe(g)) { infoNova.alt = g.info.alt; infoNova.opcao = String(fd.get('opcao') || '').trim() || (g.info || {}).opcao || ''; } // continua sendo uma das opções
     const noPacote = pp && !!fd.get('pacote');
     if (noPacote) infoNova.pacote = true;
     const item = { ...g, roteiro: 'sim', categoria: cat, descricao: fraseNormal(fd.get('descricao')), local: String(fd.get('local')).trim(), link: /^https?:\/\//i.test(link) ? link : (link ? 'https://' + link : ''),
@@ -2057,7 +2112,8 @@ function telaResumo() {
   const gs = (S.dados.gastos || []).filter(pago);
   // Tudo o que foi lançado: gastos pagos + roteiro a pagar + o que cada um paga na hora.
   // Com o preço publicado, o grupo vê os itens do pacote com a margem dentro (vit); "fora do pacote" e "pago na hora" ficam reais.
-  const todos = (S.dados.gastos || []).filter(g => !soMeu(g) && C.totalItem(g, S.dados) > 0);
+  // (opção Hotel | Airbnb que ninguém escolheu ainda não entra na soma)
+  const todos = (S.dados.gastos || []).filter(g => !soMeu(g) && C.totalItem(g, S.dados) > 0 && (!altDe(g) || nVao(g) > 0));
   const val = g => totalVit(g);
   const total = todos.reduce((s, g) => s + val(g), 0);
   if (!total) { $('#tela').innerHTML = `<div class="cartao vazio"><b>📊</b>O resumo aparece assim que houver algo com valor no roteiro ou nos gastos.</div>`; return; }

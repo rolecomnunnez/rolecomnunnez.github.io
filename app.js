@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v66'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v67'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -631,6 +631,7 @@ function render() {
   $$('[data-preco]').forEach(b => b.onclick = () => irAba('preco'));
   if (VER_COMO) $('#fab').classList.add('oculto');
   barraVerComo();
+  if (!VER_COMO) autoCusto();
 }
 
 // Faixa de "ver como": escolher a pessoa, trocar de pessoa ou sair. A tela abaixo fica só para olhar (CSS desliga os toques).
@@ -1101,6 +1102,28 @@ function cartaoValor() {
     <p style="margin:8px 0 0">Já pago: <b class="num pos">${brl(pg)}</b> · Falta: <b class="num ${falta ? 'neg' : 'pos'}">${falta ? brl(falta) : 'tudo pago 🎉'}</b></p></div>`;
 }
 
+// Custo do pacote segundo o Roteiro (centavos): itens dentro do pacote, só a opção com mais gente em cada "Hotel | Airbnb".
+const custoDoRoteiro = () => semAlternativas(itensRoteiro()).filter(g => !cadaUm(g) && !foraPacote(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0);
+// Com "Custo acompanha o Roteiro" ligado, o app do organizador atualiza o custo e o preço publicado sempre que o Roteiro muda
+// (escolhas de Vou/Não vou, valores, opções). Só o organizador grava o preço; por isso funciona com o app dele aberto.
+let _autoCusto = false;
+function autoCusto() {
+  if (_autoCusto || !S || !S.dados || !souOrg()) return;
+  const pl = S.dados.viagem.plano || {}, pr = pl.precif;
+  if (!pr || !pr.custoAuto) return;
+  const novo = custoDoRoteiro();
+  if (!(novo > 0) || C.centavos(pr.custo) === novo) return;
+  _autoCusto = true;
+  try {
+    let aviso = '';
+    salvarPlano(p => {
+      p.precif = { ...p.precif, custo: novo / 100 };
+      if (p.venda) { const x = calcVenda(p.precif, p.isentos); if (x) { p.venda = x.venda; aviso = `Custo atualizado pelo Roteiro: ${brl(novo)}. Preço do grupo: ${brl(x.venda.porVaga)} por pessoa.`; } }
+    });
+    if (aviso) toast(aviso);
+  } finally { _autoCusto = false; }
+}
+
 /* ---------- Cobranças antecipadas (reservas, sinais): o organizador cadastra, o grupo vê no Acerto e o que já pagou vai abatendo ----------
    plano.cobrancas = [{ id, desc, tipo: 'pct' | 'rs', valor, data, item }]. "pct" é sobre o valor da viagem inteira ou sobre a parte da pessoa num item do roteiro;
    "rs" é em reais por vaga. O "já pago" é o total recebido da pessoa (Recebimentos), distribuído nas cobranças por ordem de vencimento. */
@@ -1205,7 +1228,9 @@ function telaPreco() {
   let html = `<button class="btn" data-volta-grupo style="margin-bottom:10px">‹ Voltar para o grupo</button>
   <div class="cartao"><h2>💰 Precificação <span class="mut peq">só você vê</span></h2>
     <p class="mut peq" style="margin-top:-4px">Coloque o custo total da viagem e a margem que quer ganhar. O app calcula o preço por pessoa. Os participantes veem só o preço, nunca o custo nem a margem.</p>
-    <label class="cp"><span>Custo total da viagem (R$)</span><input type="text" inputmode="decimal" data-pr="custo" value="${esc(fmtNum(pr.custo))}" placeholder="Tudo o que você paga aos fornecedores"></label>
+    <label class="cp"><span>Custo total da viagem (R$)</span><input type="text" inputmode="decimal" data-pr="custo" value="${esc(fmtNum(pr.custo))}" placeholder="Tudo o que você paga aos fornecedores" ${pr.custoAuto ? 'readonly' : ''}></label>
+    <label class="check" style="margin:-4px 0 10px"><input type="checkbox" id="pr-auto" ${pr.custoAuto ? 'checked' : ''}>Custo acompanha o Roteiro (atualiza sozinho a cada escolha de "Vou" e a cada valor)</label>
+    ${pr.custoAuto ? '<p class="dica" style="margin:-6px 0 10px">Ligado: o custo e o preço do grupo se ajustam quando o seu app está aberto. Itens "fora do pacote" e "pagos na hora" não entram. Para digitar o custo na mão, desligue.</p>' : ''}
     ${(() => { const its = semAlternativas(itensRoteiro()).filter(g => !cadaUm(g)), dentro = its.filter(g => !foraPacote(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0), fora = its.filter(foraPacote).reduce((s, g) => s + C.totalItem(g, S.dados), 0);
       return its.length ? `<p class="dica" style="margin:-4px 0 10px">Itens do Roteiro no pacote somam <b>${brl(dentro)}</b>${fora ? ` (fora do pacote: ${brl(fora)})` : ''}. ${dentro && C.centavos(pr.custo) !== dentro ? `<a href="#" id="pr-soma">Usar ${brl(dentro)} como custo</a>` : ''}</p>` : ''; })()}
     <div class="grade2">
@@ -1276,7 +1301,15 @@ function telaPreco() {
   $$('li[data-rec]').forEach(li => li.onclick = () => formRecebido(li.dataset.rec));
   if ($('#cob-add')) $('#cob-add').onclick = () => formCobranca();
   $$('li[data-cob]').forEach(li => li.onclick = () => formCobranca(cobrancas().find(c => c.id === li.dataset.cob)));
-  if ($('#pr-soma')) $('#pr-soma').onclick = e => { e.preventDefault(); const t = semAlternativas(itensRoteiro()).filter(g => !cadaUm(g) && !foraPacote(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0); salvarPlano(p => { p.precif = { ...(p.precif || {}), custo: t / 100 }; if (p.venda) { const x = calcVenda(p.precif, p.isentos); if (x) p.venda = x.venda; } }); };
+  if ($('#pr-auto')) $('#pr-auto').onchange = e => {
+    const liga = e.target.checked, t = custoDoRoteiro();
+    salvarPlano(p => {
+      p.precif = { ...(p.precif || {}), custoAuto: liga };
+      if (liga && t > 0) { p.precif.custo = t / 100; if (p.venda) { const x = calcVenda(p.precif, p.isentos); if (x) p.venda = x.venda; } }
+    });
+    toast(liga ? 'Custo acompanhando o Roteiro ✓' : 'Custo manual: digite o valor.');
+  };
+  if ($('#pr-soma')) $('#pr-soma').onclick = e => { e.preventDefault(); const t = custoDoRoteiro(); salvarPlano(p => { p.precif = { ...(p.precif || {}), custo: t / 100 }; if (p.venda) { const x = calcVenda(p.precif, p.isentos); if (x) p.venda = x.venda; } }); };
   if ($('#pr-ver')) $('#pr-ver').onclick = () => { VER_COMO = $('#pr-como').value; irAba('saldos'); };
 }
 

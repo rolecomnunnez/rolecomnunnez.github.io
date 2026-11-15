@@ -2244,7 +2244,8 @@ function formRoteiro(g) {
     if (b !== 'ok') return;
     const fd = new FormData(f), valor = lerNum(fd.get('valor'));
     const pp = fd.get('tipoValor') === 'porPessoa';
-    if (!(valor > 0)) { e.preventDefault(); return toast(pp ? 'Informe o valor por pessoa.' : 'Informe o valor total.'); }
+    // Aceita 0,00 (trilha ou passeio gratuito); só recusa o campo vazio ou inválido.
+    if (String(fd.get('valor') || '').trim() === '' || !(valor >= 0)) { e.preventDefault(); return toast(pp ? 'Informe o valor por pessoa (pode ser 0).' : 'Informe o valor total (pode ser 0).'); }
     // Opção para comparar (Hotel | Airbnb): a presença é escolha de cada um, então o formulário não mexe nela.
     const vao = altDe(g) ? S.dados.pessoas.filter(p => !(g.ausentes || []).includes(p.id)).map(p => p.id) : fd.getAll('vai');
     if (!vao.length && !altDe(g)) { e.preventDefault(); return toast('Marque pelo menos uma pessoa que vai.'); }

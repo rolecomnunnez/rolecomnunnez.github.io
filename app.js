@@ -1007,7 +1007,7 @@ const fatorVenda = () => { const f = Number(((S.dados.viagem.plano || {}).venda 
 // O organizador pode "ver como o grupo vê" para conferir o que os participantes enxergam (só muda a tela dele).
 const verComoGrupo = () => souOrg() && !!ls.get('rv:vergrupo', false);
 const comoGrupo = () => !souOrg() || verComoGrupo();
-const vit = (g, centavos, paraOutros) => (cadaUm(g) || (!paraOutros && !comoGrupo())) ? centavos : Math.round(centavos * fatorVenda());
+const vit = (g, centavos, paraOutros) => (cadaUm(g) || (!paraOutros && !comoGrupo())) ? centavos : C.inteiros(centavos * fatorVenda()); // reais inteiros, para cima
 const vendaPublicada = () => !!((S.dados.viagem.plano || {}).venda || {}).porVaga;
 
 // Cartão que cada participante vê: quanto paga, sinal, parcelas, o que já pagou e o que falta.

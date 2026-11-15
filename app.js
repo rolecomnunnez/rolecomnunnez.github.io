@@ -1125,7 +1125,7 @@ function cartaoAParte(pids, soDecididos) {
   if (!linhas.length && !pendentes.length) return '';
   const base = pids.reduce((s, id) => s + devidoDe(id), 0);
   return `<div class="cartao"><h2>🛏️ Hospedagem e pagamentos à parte</h2>
-    <p class="mut peq" style="margin:-4px 0 6px">Valor real do anúncio ou do local, sem margem, pago à parte.${soDecididos ? '' : ' Muda conforme o grupo escolhe.'}</p>
+    <p class="mut peq" style="margin:-4px 0 6px">Valor real do anúncio ou do local${souOrg() ? ', sem margem,' : ','} pago à parte.${soDecididos ? '' : ' Muda conforme o grupo escolhe.'}</p>
     ${linhas.length ? `<ul class="lista">${linhas.map(l => `<li><span class="meio"><b style="white-space:normal">${esc(l.nome)}</b></span><span class="num"><b>${brl(l.v)}</b></span></li>`).join('')}</ul>` : ''}
     ${pendentes.length ? `<p class="peq" style="margin:6px 0 0"><span class="neg">Falta escolher:</span> ${pendentes.map(esc).join('; ')}</p>` : ''}
     ${linhas.length ? `<div style="border-top:1px solid var(--lin);margin-top:8px;padding-top:8px"><div class="peq mut">Total estimado por pessoa${pendentes.length ? ' (sem o que falta escolher)' : ''}</div>

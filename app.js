@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v71'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v72'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -1155,9 +1155,9 @@ function valorCobranca(c, pid) {
   if (isento(pid)) return 0;
   if (c.tipo === 'rs') return (comItens && !vai) ? 0 : C.centavos(n) * peso; // com itens: só para quem vai em algum deles (cobrado uma vez)
   if (comItens) {
-    // % do que o LOCAL pede (preço real, sem a margem), dividido entre quem paga o pacote:
-    // o total pedido é o % do valor de todos que vão (inclusive quem não paga); a parte de quem não paga é repartida entre os pagantes.
-    const pagantes = (S.dados.pessoas || []).filter(x => !isento(x.id)).map(x => x.id);
+    // % do que o LOCAL pede (preço real, sem a margem): cada pessoa paga esse % da PARTE DELA.
+    // A parte de quem não paga o pacote (o organizador) fica por conta dele e não é cobrada de ninguém.
+    const pagantes = (S.dados.pessoas || []).map(x => x.id);
     let tot = 0;
     gs.filter(g => !cadaUm(g)).forEach(g => { // inclui itens fora do pacote (cobrança à parte, pelo valor real)
       const d = C.dividir(g, S.dados), W = pagantes.reduce((s, id) => s + (d[id] || 0), 0);
@@ -1198,7 +1198,7 @@ function htmlAgenda(ag) {
 }
 const regraCobranca = c => {
   const nm = nomesItens(c);
-  return (c.tipo === 'rs' ? `R$ ${fmtNum(c.valor)} por vaga` : `${fmtNum(c.valor)}% ${nm.length ? 'do preço do local, entre os pagantes' : 'do valor da viagem'}`) + (nm.length ? ' · para: ' + nm.join(' + ') : '') + (cobrancaAParte(c) ? ' · à parte (fora do pacote)' : '');
+  return (c.tipo === 'rs' ? `R$ ${fmtNum(c.valor)} por vaga` : `${fmtNum(c.valor)}% ${nm.length ? 'do preço do local (a parte de cada um)' : 'do valor da viagem'}`) + (nm.length ? ' · para: ' + nm.join(' + ') : '') + (cobrancaAParte(c) ? ' · à parte (fora do pacote)' : '');
 };
 
 function formCobranca(c) {
@@ -1228,7 +1228,7 @@ function formCobranca(c) {
     const rs = f.tipo.value === 'rs', n = f.querySelectorAll('[name=itens]:checked').length, tem = n > 0, varios = n > 1;
     $('#cob-rot', f).textContent = rs ? 'Valor por vaga (R$)' : 'Percentual (%)';
     $('#cob-dica', f).textContent = rs ? (tem ? 'Valor fixo por vaga (uma vez só), para quem vai em algum dos itens marcados.' : 'Valor fixo por vaga para todos.')
-      : (tem ? `Esse % é do preço que o local pede (sem a sua margem) ${varios ? 'nesses itens' : 'nesse item'}, dividido entre quem paga o pacote. Quem não vai em um item não paga por ele.` : 'Cada pessoa paga esse % do valor da viagem dela.');
+      : (tem ? `Esse % é do preço que o local pede (sem a sua margem) ${varios ? 'nesses itens' : 'nesse item'}: cada pessoa paga esse % da parte dela. A parte de quem não paga o pacote (você) fica por sua conta. Quem não vai em um item não paga por ele.` : 'Cada pessoa paga esse % do valor da viagem dela.');
   };
   f.tipo.onchange = ajustaCob; f.querySelectorAll('[name=itens]').forEach(x => x.onchange = ajustaCob); ajustaCob();
   f.onsubmit = e => {
@@ -1303,7 +1303,11 @@ function telaPreco() {
     const cs = cobrancas(), totalCob = c => ps.reduce((s, p) => s + valorCobranca(c, p.id), 0);
     html += `<div class="titulo-sec">📅 Cobranças antecipadas</div><div class="cartao" style="padding:4px 16px">
       <p class="mut peq" style="margin:10px 0 0">Reservas e sinais que o grupo paga antes da viagem (o que o local pedir). Cada pessoa vê o valor dela no Acerto, e o que já pagou vai abatendo.</p>
-      ${cs.length ? `<ul class="lista">${cs.map(c => `<li class="clica" data-cob="${esc(c.id)}"><span class="ico">📅</span><span class="meio"><b>${esc(c.desc)}</b><small style="white-space:normal">${esc(regraCobranca(c))} · ${c.data ? 'até ' + fmtData(c.data) : 'sem data'}${cobrancaAParte(c) ? ` · recebido ${brl(((pl.pagoCob || {})[c.id] || []).reduce((s, pid) => s + valorCobranca(c, pid), 0))} de ${brl(totalCob(c))}` : ''}</small></span><span class="num"><b>${brl(totalCob(c))}</b></span></li>`).join('')}</ul>` : ''}
+      ${cs.length ? `<ul class="lista">${cs.map(c => `<li class="clica" data-cob="${esc(c.id)}"><span class="ico">📅</span><span class="meio"><b>${esc(c.desc)}</b><small style="white-space:normal">${esc(regraCobranca(c))} · ${c.data ? 'até ' + fmtData(c.data) : 'sem data'}${cobrancaAParte(c) ? ` · recebido ${brl(((pl.pagoCob || {})[c.id] || []).reduce((s, pid) => s + valorCobranca(c, pid), 0))} de ${brl(totalCob(c))}` : ''}${(() => { // o que o local pede e quanto você adianta (a sua parte, que não é cobrada de ninguém)
+        if (c.tipo !== 'pct' || !itensDaCobranca(c).length) return '';
+        const pedido = Math.round(itensDaCobranca(c).map(i => S.dados.gastos.find(x => x.id === i)).filter(g => g && !cadaUm(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0) * (Number(c.valor) || 0) / 100);
+        const adianta = pedido - totalCob(c);
+        return ` · o local pede ${brl(pedido)}${adianta > 0 ? ` · você adianta ${brl(adianta)}` : ''}`; })()}</small></span><span class="num"><b>${brl(totalCob(c))}</b></span></li>`).join('')}</ul>` : ''}
       <button class="btn lg sua" id="cob-add" style="margin:8px 0 12px">+ Adicionar cobrança</button></div>
     <div class="titulo-sec">Recebimentos</div><div class="cartao" style="padding:4px 16px">
       <p class="mut peq" style="margin:10px 0 0">Recebido ${brl(totalRec)} de ${brl(totalDev)}${totalDev > totalRec ? ` · falta ${brl(totalDev - totalRec)}` : ''}</p>

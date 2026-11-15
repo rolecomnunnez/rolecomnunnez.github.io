@@ -812,7 +812,7 @@ function secaoPacote(eu, meusIds, parteDe) {
   const euOrg = souOrg();
   const linhas = itens.map(g => {
     const cat = C.CAT[g.categoria] || C.CAT.outros, fora = foraPacote(g) || cadaUm(g);
-    return `<li><span class="ico">${cat.icone}</span><span class="meio"><b>${esc(g.descricao)}</b><small>${fora ? (foraPacote(g) && !cadaUm(g) ? 'fora do pacote · pague no local' : 'pague na hora') : 'incluso no pacote'}</small></span><span class="num"><b>${brl(vit(g, parteDe(g)))}</b></span></li>`;
+    return `<li><span class="ico">${cat.icone}</span><span class="meio"><b>${esc(g.descricao)}</b><small>${fora ? (foraPacote(g) && !cadaUm(g) ? 'fora do pacote · pague no local' : 'pague na hora') : esc(quando(g))}</small></span><span class="num"><b>${brl(vit(g, parteDe(g)))}</b></span></li>`;
   }).join('');
   return `<div class="titulo-sec">🗺️ Sua parte no roteiro</div><div class="cartao" style="padding:4px 16px">${linhas ? `<ul class="lista">${linhas}</ul>` : '<p class="mut peq">Nenhum item do roteiro marcado com você ainda.</p>'}
     <div class="peq" style="display:flex;justify-content:space-between;border-top:1px solid var(--lin);padding:10px 0;font-weight:700"><span>Valor da viagem</span><span class="num">${brl(devido)}</span></div>

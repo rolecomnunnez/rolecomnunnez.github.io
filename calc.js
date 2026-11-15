@@ -288,18 +288,22 @@
     const c = centavos(custo), v = Number(vagas) || 0, m = Number(String(margem == null ? '' : margem).replace(',', '.')) || 0;
     if (!(c > 0) || !(v > 0)) return { ok: false };
     const alvo = margemTipo === 'rs' ? c + centavos(m) : Math.round(c * (1 + m / 100));
-    const porVaga = Math.ceil(alvo / v / 100) * 100;        // reais inteiros, para cima
+    const porVaga = Math.ceil(alvo / v / 500) * 500;        // múltiplo de R$ 5, para cima
     const receita = Math.round(porVaga * v);
     const lucro = receita - c;
     return { ok: true, custo: c, porVaga, receita, lucro, margemReal: Math.round(lucro / c * 1000) / 10, equilibrio: porVaga ? Math.ceil(c / porVaga) : 0 };
   }
   // O que cada um paga: preço por vaga × quantas vagas a pessoa ocupa (casal = 2).
-  const inteiros = c => Math.ceil(Math.round(c) / 100) * 100; // reais inteiros, para cima (sem centavos quebrados)
-  const devidoPessoa = (porVaga, peso) => inteiros(porVaga * (Number(peso) > 0 ? Number(peso) : 1));
-  // Sinal e parcelas em reais inteiros; a última parcela absorve a sobra.
+  // Valores "redondos" para vitrine: múltiplo de R$ 5 mais próximo (262,53 → 260 · 264,30 → 265). Abaixo de R$ 20, reais inteiros.
+  // Olha só os reais (sem os centavos): terminou em 1 ou 2 desce, em 3 ou 4 sobe.
+  const arred5 = c => { const r = Math.floor(Math.round(c) / 100); return (r < 20 ? Math.round(Math.round(c) / 100) : Math.round(r / 5) * 5) * 100; };
+  const cima5 = c => Math.ceil(Math.round(c) / 500) * 500; // múltiplo de R$ 5, para cima (preço por pessoa, sinal)
+  const inteiros = arred5;
+  const devidoPessoa = (porVaga, peso) => cima5(porVaga * (Number(peso) > 0 ? Number(peso) : 1));
+  // Sinal e parcelas em múltiplos de R$ 5; a última parcela absorve a sobra.
   function parcelar(total, sinalPct, n) {
-    const sinal = Math.min(total, inteiros(total * (Number(sinalPct) || 0) / 100)), resto = total - sinal, k = Math.max(1, Math.floor(Number(n) || 1));
-    const base = Math.floor(resto / k / 100) * 100, parcelas = Array.from({ length: k }, () => base);
+    const sinal = Math.min(total, cima5(total * (Number(sinalPct) || 0) / 100)), resto = total - sinal, k = Math.max(1, Math.floor(Number(n) || 1));
+    const base = Math.floor(resto / k / 500) * 500, parcelas = Array.from({ length: k }, () => base);
     parcelas[k - 1] += resto - base * k;
     return { sinal, parcelas };
   }

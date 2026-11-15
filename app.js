@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v58'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v59'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -1075,6 +1075,13 @@ const comoGrupo = () => !souOrg();
 // "Fora do pacote": item que o grupo paga direto no local (ex.: hospedagem). Não leva margem e não entra na soma do pacote.
 const foraPacote = g => !!((g.info || {}).fora);
 const vit = (g, centavos, paraOutros) => (cadaUm(g) || foraPacote(g) || (!paraOutros && !comoGrupo())) ? centavos : C.inteiros(centavos * fatorVenda()); // múltiplo de R$ 5
+// Total de um item como o grupo vê: a SOMA das partes já arredondadas (assim 5 pessoas × R$ 50 = R$ 250 e a conta bate;
+// arredondar o total à parte dava R$ 260 com partes de R$ 50).
+const totalVit = (g, paraOutros) => {
+  if (cadaUm(g) || foraPacote(g) || (!paraOutros && !comoGrupo())) return C.totalItem(g, S.dados);
+  const d = C.dividir(g, S.dados), ks = Object.keys(d);
+  return ks.length ? ks.reduce((s, k) => s + C.inteiros(d[k] * fatorVenda()), 0) : C.inteiros(C.totalItem(g, S.dados) * fatorVenda());
+};
 const vendaPublicada = () => !!((S.dados.viagem.plano || {}).venda || {}).porVaga;
 
 // Cartão que cada participante vê: quanto paga, sinal, parcelas, o que já pagou e o que falta.
@@ -1614,7 +1621,7 @@ function exportarAgenda() {
     const cat = C.CAT[g.categoria] || C.CAT.outros, parte = C.dividir(g, S.dados)[eu];
     const i = g.info || {};
     const desc = [g.descricao + ' · ' + v.nome,
-      cadaUm(g) ? 'Valor: ' + brl(C.centavos(g.valor)) + ' por pessoa (pago na hora)' : 'Valor total: ' + brl(vit(g, C.totalItem(g, S.dados))) + (parte ? ' · sua parte: ' + brl(vit(g, parte)) : ''),
+      cadaUm(g) ? 'Valor: ' + brl(C.centavos(g.valor)) + ' por pessoa (pago na hora)' : 'Valor total: ' + brl(totalVit(g)) + (parte ? ' · sua parte: ' + brl(vit(g, parte)) : ''),
       i.checkin ? 'Check-in a partir de ' + i.checkin : '', i.checkout ? 'Check-out até ' + i.checkout : '',
       i.wifi ? 'Wi-Fi: ' + i.wifi + (i.wifiSenha ? ' / senha: ' + i.wifiSenha : '') : '', i.contato ? 'Contato: ' + i.contato : '',
       i.instrucoes || '', g.obs || '', g.link ? 'Reserva: ' + g.link : '', 'App: ' + linkConvite()].filter(Boolean).join('\n');
@@ -1831,7 +1838,7 @@ function telaRoteiro() {
           ${htmlInfo(g)}
           <div class="peq" style="margin-top:6px">💰 ${cadaUm(g)
             ? (() => { const ent = Math.round(C.totalItem(g, S.dados) / C.centavos(g.valor)); return `<b class="num">${brl(C.centavos(g.valor))} por pessoa</b>, pago na hora · ${ent} ${ent === 1 ? 'entrada' : 'entradas'} (≈ ${brl(C.totalItem(g, S.dados))} no grupo)${partes[S.eu] ? ` · <b>você leva ${brl(partes[S.eu])}</b>` : ''}`; })()
-            : `<b class="num">${brl(vit(g, C.totalItem(g, S.dados)))}</b> para ${n} ${n === 1 ? 'pessoa' : 'pessoas'}${g.modo === 'porPessoa' ? ` (${brl(vit(g, C.centavos(g.valor)))} por pessoa)` : ''}${partes[S.eu] ? ` · <b>sua parte ${brl(vit(g, partes[S.eu]))}</b>` : ''}`}</div>
+            : `<b class="num">${brl(totalVit(g))}</b> para ${n} ${n === 1 ? 'pessoa' : 'pessoas'}${g.modo === 'porPessoa' ? ` (${brl(vit(g, C.centavos(g.valor)))} por pessoa)` : ''}${partes[S.eu] ? ` · <b>sua parte ${brl(vit(g, partes[S.eu]))}</b>` : ''}`}</div>
           ${fora.length ? `<div class="peq mut">Não vão: ${esc(fora.join(', '))}</div>` : ''}
         </div>
       </div>
@@ -1869,7 +1876,7 @@ function textoRoteiro() {
   const v = S.dados.viagem;
   let t = `🗺️ *Roteiro: ${v.nome}*\n`;
   itensRoteiro().forEach(g => {
-    const partes = C.dividir(g, S.dados), n = Object.keys(partes).length, total = vit(g, C.totalItem(g, S.dados), true);
+    const partes = C.dividir(g, S.dados), n = Object.keys(partes).length, total = totalVit(g, true);
     t += `\n${(C.CAT[g.categoria] || C.CAT.outros).icone} *${g.descricao}*\n🕒 ${quando(g)}\n` + (g.local ? `📍 ${g.local}\n` : '') +
       (cadaUm(g) ? `💰 ${brl(C.centavos(g.valor))} por pessoa · cada um paga o seu na hora\n`
         : `💰 ${brl(total)}${n ? ` (≈ ${brl(Math.round(total / Object.keys(partes).reduce((s, k) => s + (Number((pessoa(k) || {}).peso) || 1), 0)))} por pessoa, ${n} ${n === 1 ? 'pessoa' : 'pessoas'})` : ''}${pago(g) ? '' : ' · a pagar'}\n`);
@@ -1883,7 +1890,7 @@ async function avisarPorEmail() {
   if (!confirm(`Mandar o roteiro por e-mail para ${comEmail.length} ${comEmail.length === 1 ? 'pessoa' : 'pessoas'} (${comEmail.map(p => p.nome.split(' ')[0]).join(', ')})?`)) return;
   const itens = itensRoteiro(), partes = C.partes(S.dados, () => true);
   const mensagens = comEmail.map(p => {
-    const linhas = itens.map(g => { const pt = C.dividir(g, S.dados)[p.id]; return `<li><b>${esc(g.descricao)}</b><br>${esc(quando(g))}${g.local ? '<br>📍 ' + esc(g.local) : ''}<br>${cadaUm(g) ? `${brl(C.centavos(g.valor))} por pessoa, cada um paga o seu na hora · ${pt ? 'leve <b>' + brl(pt) + '</b>' : 'você não vai'}` : `Total ${brl(vit(g, C.totalItem(g, S.dados), true))} · ${pt ? 'sua parte <b>' + brl(vit(g, pt, true)) + '</b>' : 'você não vai'}${pago(g) ? '' : ' (a pagar)'}`}</li>`; }).join('');
+    const linhas = itens.map(g => { const pt = C.dividir(g, S.dados)[p.id]; return `<li><b>${esc(g.descricao)}</b><br>${esc(quando(g))}${g.local ? '<br>📍 ' + esc(g.local) : ''}<br>${cadaUm(g) ? `${brl(C.centavos(g.valor))} por pessoa, cada um paga o seu na hora · ${pt ? 'leve <b>' + brl(pt) + '</b>' : 'você não vai'}` : `Total ${brl(totalVit(g, true))} · ${pt ? 'sua parte <b>' + brl(vit(g, pt, true)) + '</b>' : 'você não vai'}${pago(g) ? '' : ' (a pagar)'}`}</li>`; }).join('');
     return { pessoa: p.id, assunto: '🗺️ Roteiro: ' + S.dados.viagem.nome, titulo: 'Oi, ' + p.nome.split(' ')[0] + '! Este é o roteiro da viagem',
       html: `<ul>${linhas}</ul><p>${vendaPublicada() ? `Valor da sua viagem: <b>${brl(devidoDe(p.id))}</b>.` : `Sua parte na viagem até agora: <b>${brl(partes[p.id] || 0)}</b>.`}</p><p>No app você marca se vai em cada passeio.</p>` };
   });
@@ -2051,7 +2058,7 @@ function telaResumo() {
   // Tudo o que foi lançado: gastos pagos + roteiro a pagar + o que cada um paga na hora.
   // Com o preço publicado, o grupo vê os itens do pacote com a margem dentro (vit); "fora do pacote" e "pago na hora" ficam reais.
   const todos = (S.dados.gastos || []).filter(g => !soMeu(g) && C.totalItem(g, S.dados) > 0);
-  const val = g => vit(g, C.totalItem(g, S.dados));
+  const val = g => totalVit(g);
   const total = todos.reduce((s, g) => s + val(g), 0);
   if (!total) { $('#tela').innerHTML = `<div class="cartao vazio"><b>📊</b>O resumo aparece assim que houver algo com valor no roteiro ou nos gastos.</div>`; return; }
   const jaPagoV = g => vit(g, C.jaPagoItem(g, S.dados));

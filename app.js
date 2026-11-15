@@ -667,9 +667,11 @@ function telaInicio() {
 const cadaUm = g => g.modo === 'porPessoa' || g.status === 'cada_um'; // cada um paga o seu na hora (só estimativa)
 const pago = g => g.status !== 'previsto' && !cadaUm(g);
 const soMeu = g => g.modo === 'sozinho'; // gasto só de quem pagou: aparece na lista, mas fica fora do total do grupo e do acerto
-function totalGeral() { return (S.dados.gastos || []).filter(g => pago(g) && !soMeu(g)).reduce((s, g) => s + C.valorDoGasto(g), 0); }
+// Fora da conta: itens "fora do pacote" e, com o preço publicado, os do roteiro (ver C.foraDaConta).
+const naConta = g => !C.foraDaConta(g, S.dados);
+function totalGeral() { return (S.dados.gastos || []).filter(g => naConta(g) && pago(g) && !soMeu(g)).reduce((s, g) => s + C.valorDoGasto(g), 0); }
 function gastosOrdenados() {
-  return (S.dados.gastos || []).filter(pago).sort((a, b) => (b.data || '').localeCompare(a.data || '') || String(b.id).localeCompare(String(a.id)));
+  return (S.dados.gastos || []).filter(g => naConta(g) && pago(g)).sort((a, b) => (b.data || '').localeCompare(a.data || '') || String(b.id).localeCompare(String(a.id)));
 }
 
 let FILTRO = '';
@@ -677,7 +679,7 @@ function telaGastos() {
   const gs = gastosOrdenados().filter(g => !FILTRO || g.categoria === FILTRO);
   const sal = C.saldos(S.dados);
   const meu = S.eu in sal.saldo ? sal.saldo[S.eu] : null;
-  const usadas = [...new Set((S.dados.gastos || []).filter(pago).map(g => g.categoria))];
+  const usadas = [...new Set((S.dados.gastos || []).filter(g => naConta(g) && pago(g)).map(g => g.categoria))];
   let html = `<div class="placar">
     <div class="cartao"><small>Total da viagem</small><strong class="num">${brl(totalGeral())}</strong></div>
     <div class="cartao"><small>${!meu ? 'Seu saldo' : meu > 0 ? 'Você tem a receber' : 'Você deve'}</small><strong class="num ${meu > 0 ? 'pos' : meu < 0 ? 'neg' : ''}">${meu === null ? '—' : brl(Math.abs(meu))}</strong></div>
@@ -721,8 +723,8 @@ function telaGastos() {
 function telaSaldos() {
   const sal = C.saldos(S.dados);
   const tr = saldoAgrupado().transf;
-  const pend = (S.dados.gastos || []).filter(g => g.status === 'pendente');
-  const aPagar = (S.dados.gastos || []).filter(g => g.status === 'previsto');
+  const pend = (S.dados.gastos || []).filter(g => naConta(g) && g.status === 'pendente');
+  const aPagar = (S.dados.gastos || []).filter(g => naConta(g) && g.status === 'previsto');
   const falta = aPagar.reduce((s, g) => s + C.valorDoGasto(g) - C.jaPagoItem(g, S.dados), 0);
   const aguardando = (S.dados.acertos || []).filter(a => a.status === 'aguardando');
   let html = '';
@@ -793,7 +795,7 @@ function telaAcerto() {
   if (resp !== eu) html += `<div class="aviso" style="background:var(--suave);color:var(--tx)">💑 Sua conta é acertada por <b>${esc(nome(resp))}</b>. O que você deve ou tem a receber está somado na conta dele(a).</div>`;
   // 1) roteiro: a parte de cada um em cada item
   const parteDe = g => { const d = C.dividir(g, S.dados); return meusIds.reduce((s, id) => s + (d[id] || 0), 0); }; // eu + quem eu cubro
-  const itens = itensRoteiro().filter(g => parteDe(g));
+  const itens = itensRoteiro().filter(g => naConta(g) && parteDe(g));
   if (itens.length) {
     let totalParte = 0, totalPend = 0;
     html += `<div class="titulo-sec">🗺️ Sua parte no roteiro${cobre(eu).length ? ' (com ' + cobre(eu).map(p => esc(primeiroNome(p.id))).join(', ') + ')' : ''}</div><div class="cartao" style="padding:4px 16px"><ul class="lista">${itens.map(g => {
@@ -1603,7 +1605,7 @@ function selo(g) {
 
 function telaRoteiro() {
   const org = souOrg(), itens = itensRoteiro();
-  const minhas = C.partes(S.dados), meuTotal = minhas[S.eu] || 0;
+  const minhas = C.partes(S.dados, () => true), meuTotal = minhas[S.eu] || 0; // Roteiro: valores reais (o organizador vê o custo)
   const aPagar = itens.filter(g => !pago(g) && !cadaUm(g));
   const totalRot = itens.reduce((s, g) => s + C.totalItem(g, S.dados), 0);
   // Com o preço publicado, quem não organiza vê o "Valor da viagem" (cartão abaixo) no lugar da soma dos custos.
@@ -1699,7 +1701,7 @@ async function avisarPorEmail() {
   const comEmail = S.dados.pessoas.filter(p => p.email);
   if (!comEmail.length) return toast('Ninguém tem e-mail cadastrado ainda (aba Grupo).');
   if (!confirm(`Mandar o roteiro por e-mail para ${comEmail.length} ${comEmail.length === 1 ? 'pessoa' : 'pessoas'} (${comEmail.map(p => p.nome.split(' ')[0]).join(', ')})?`)) return;
-  const itens = itensRoteiro(), partes = C.partes(S.dados);
+  const itens = itensRoteiro(), partes = C.partes(S.dados, () => true);
   const mensagens = comEmail.map(p => {
     const linhas = itens.map(g => { const pt = C.dividir(g, S.dados)[p.id]; return `<li><b>${esc(g.descricao)}</b><br>${esc(quando(g))}${g.local ? '<br>📍 ' + esc(g.local) : ''}<br>${cadaUm(g) ? `${brl(C.centavos(g.valor))} por pessoa, cada um paga o seu na hora · ${pt ? 'leve <b>' + brl(pt) + '</b>' : 'você não vai'}` : `Total ${brl(vit(g, C.valorDoGasto(g), true))} · ${pt ? 'sua parte <b>' + brl(vit(g, pt, true)) + '</b>' : 'você não vai'}${pago(g) ? '' : ' (a pagar)'}`}</li>`; }).join('');
     return { pessoa: p.id, assunto: '🗺️ Roteiro: ' + S.dados.viagem.nome, titulo: 'Oi, ' + p.nome.split(' ')[0] + '! Este é o roteiro da viagem',
@@ -1860,9 +1862,9 @@ function formRoteiro(g) {
 }
 
 function telaResumo() {
-  const gs = (S.dados.gastos || []).filter(pago);
+  const gs = (S.dados.gastos || []).filter(g => naConta(g) && pago(g));
   // Tudo o que foi lançado: gastos pagos + roteiro a pagar + o que cada um paga na hora.
-  const todos = (S.dados.gastos || []).filter(g => !soMeu(g) && C.totalItem(g, S.dados) > 0);
+  const todos = (S.dados.gastos || []).filter(g => naConta(g) && !soMeu(g) && C.totalItem(g, S.dados) > 0);
   const val = g => C.totalItem(g, S.dados);
   const total = todos.reduce((s, g) => s + val(g), 0);
   if (!total) { $('#tela').innerHTML = `<div class="cartao vazio"><b>📊</b>O resumo aparece assim que houver algo com valor no roteiro ou nos gastos.</div>`; return; }
@@ -1936,9 +1938,9 @@ function telaResumo() {
 /* ---------- Relatório final: página pronta para imprimir ou "Salvar como PDF" ---------- */
 function relatorioPDF() {
   const d = S.dados, v = d.viagem, sal = C.saldos(d), partes = C.partes(d), tr = saldoAgrupado().transf;
-  const total = (d.gastos || []).reduce((s, g) => s + C.totalItem(g, d), 0);
+  const total = (d.gastos || []).filter(naConta).reduce((s, g) => s + C.totalItem(g, d), 0);
   const tab = (cab, linhas) => `<table><thead><tr>${cab.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${linhas.join('')}</tbody></table>`;
-  const gastos = (d.gastos || []).slice().sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+  const gastos = (d.gastos || []).filter(naConta).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(v.nome)} — relatório</title><style>
     body{font:12px/1.4 system-ui,Segoe UI,Arial,sans-serif;color:#101a3c;margin:24px} h1{font-size:20px;margin:0} h2{font-size:14px;margin:22px 0 6px;border-bottom:2px solid #2ad4b4;padding-bottom:3px}
     .sub{color:#5a6386} table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:4px 6px;border-bottom:1px solid #e0e3ef;vertical-align:top} th{background:#f4f5fa;font-size:11px}

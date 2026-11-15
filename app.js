@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v72'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v73'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -846,7 +846,7 @@ function telaAcerto() {
   // 1) roteiro: a parte de cada um em cada item
   const parteDe = g => { const d = C.dividir(g, S.dados); return meusIds.reduce((s, id) => s + (d[id] || 0), 0); }; // eu + quem eu cubro
   // Com o preço publicado, a parte do roteiro vira o "pacote": cada item com o valor do grupo (margem dentro) e o total que a pessoa paga ao organizador.
-  if (vendaPublicada()) html += secaoPacote(eu, meusIds, parteDe);
+  if (vendaPublicada()) html += secaoPacote(eu, meusIds, parteDe) + cartaoAParte(meusIds, true); // à parte: só o que já foi decidido
   const itens = vendaPublicada() ? [] : itensRoteiro().filter(g => naConta(g) && parteDe(g));
   if (itens.length) {
     let totalParte = 0, totalPend = 0;
@@ -1085,6 +1085,42 @@ const totalVit = (g, paraOutros) => {
   return ks.length ? ks.reduce((s, k) => s + C.inteiros(d[k] * fatorVenda()), 0) : C.inteiros(C.totalItem(g, S.dados) * fatorVenda());
 };
 const vendaPublicada = () => !!((S.dados.viagem.plano || {}).venda || {}).porVaga;
+
+/* ---------- Hospedagem e outros pagamentos à parte (itens fora do pacote), com o "total estimado por pessoa" ----------
+   Valor real (sem margem). Nas opções Hotel | Airbnb conta a opção em que a pessoa marcou "Vou nesta"; no Acerto só entram itens já decididos
+   (sem opções pendentes), isto é, depois que o organizador escolhe a vencedora. */
+function aParteDe(pids, soDecididos) {
+  const linhas = [], pendentes = [], vistosAlt = new Set(); let total = 0;
+  itensRoteiro().filter(g => !cadaUm(g) && foraPacote(g)).forEach(g => {
+    const alt = altDe(g), d = C.dividir(g, S.dados);
+    let v = 0, indo = false;
+    pids.forEach(pid => { const vai = alt ? !(g.ausentes || []).includes(pid) : (pid in d); if (vai) { indo = true; v += d[pid] || 0; } });
+    if (alt) {
+      if (soDecididos) return;
+      if (indo && v > 0) { linhas.push({ nome: (g.descricao || rotuloOpcao(g)) + ' · ' + rotuloOpcao(g), v }); total += v; }
+      return;
+    }
+    if (v > 0) { linhas.push({ nome: g.descricao, v }); total += v; }
+  });
+  if (!soDecididos) { // grupos de opções em que a pessoa ainda não escolheu
+    const grupos = {}; itensRoteiro().filter(g => altDe(g) && foraPacote(g) && !cadaUm(g)).forEach(g => { (grupos[altDe(g)] = grupos[altDe(g)] || []).push(g); });
+    Object.values(grupos).forEach(ops => { if (ops.length > 1 && !pids.some(pid => ops.some(o => !(o.ausentes || []).includes(pid)))) pendentes.push((ops[0].descricao || 'Hospedagem') + ' (' + ops.map(rotuloOpcao).join(' ou ') + ')'); });
+  }
+  return { linhas, pendentes, total };
+}
+function cartaoAParte(pids, soDecididos) {
+  if (!vendaPublicada() || !pids.length || !pessoa(pids[0])) return '';
+  const { linhas, pendentes, total } = aParteDe(pids, soDecididos);
+  if (!linhas.length && !pendentes.length) return '';
+  const base = pids.reduce((s, id) => s + devidoDe(id), 0);
+  return `<div class="cartao"><h2>🛏️ Hospedagem e pagamentos à parte</h2>
+    <p class="mut peq" style="margin:-4px 0 6px">Valor real do anúncio ou do local, sem margem, pago à parte.${soDecididos ? '' : ' Muda conforme o grupo escolhe.'}</p>
+    ${linhas.length ? `<ul class="lista">${linhas.map(l => `<li><span class="meio"><b style="white-space:normal">${esc(l.nome)}</b></span><span class="num"><b>${brl(l.v)}</b></span></li>`).join('')}</ul>` : ''}
+    ${pendentes.length ? `<p class="peq" style="margin:6px 0 0"><span class="neg">Falta escolher:</span> ${pendentes.map(esc).join('; ')}</p>` : ''}
+    ${linhas.length ? `<div style="border-top:1px solid var(--lin);margin-top:8px;padding-top:8px"><div class="peq mut">Total estimado por pessoa${pendentes.length ? ' (sem o que falta escolher)' : ''}</div>
+      <div style="font-size:1.6rem;font-weight:800" class="num">${brl(base + total)}</div>
+      <div class="peq mut">${base ? `${brl(base)} da viagem + ` : ''}${brl(total)} à parte</div></div>` : ''}</div>`;
+}
 
 // Para quem não paga o pacote (ex.: o organizador): mostra o que o grupo vê (preço por pessoa e as cobranças antecipadas), sem valores pagos.
 function cartaoParaIsento() {
@@ -1886,6 +1922,7 @@ function telaRoteiro() {
       : `${itens.length} ${itens.length === 1 ? 'item' : 'itens'} no roteiro · custo de ${brl(totalRot)} no total${aPagar.length ? ` · ${aPagar.length} a pagar` : ''}`}</div>
   </div>`;
   html += cartaoValor();
+  html += cartaoAParte([S.eu], false);
   const zapRot = (S.dados.viagem.plano || {}).whatsapp;
   if (zapRot) html += `<a class="btn lg" href="${esc(zapRot)}" target="_blank" rel="noopener" style="background:#25d366;border-color:#25d366;color:#fff;margin-bottom:10px">💬 Grupo do WhatsApp</a>`;
   if (itens.length) html += `<button class="btn lg" id="agenda" style="margin-bottom:10px">📅 Colocar o roteiro na agenda do celular</button>`;

@@ -847,16 +847,17 @@ function secaoPacote(eu, meusIds, parteDe) {
   // O preço divide o custo só entre quem paga (vagas); os itens são divididos entre todos. Por isso cada item é escalado
   // para que a lista some exatamente o valor da viagem desta pessoa.
   const dentro = itens.filter(g => !cadaUm(g) && !foraPacote(g));
-  const baseIt = dentro.reduce((s, g) => s + parteDe(g), 0);
-  const valIt = new Map(itens.map(g => [g, (dentro.includes(g) && baseIt > 0 && devido > 0) ? C.inteiros(parteDe(g) * devido / baseIt) : vit(g, parteDe(g))]));
+  // Cada item mostra o custo + a margem. O que falta para fechar o valor da viagem é a parte de quem não paga (rateada) e o arredondamento: vira uma linha própria.
+  const valIt = new Map(itens.map(g => [g, vit(g, parteDe(g))]));
+  let rateio = 0;
   if (dentro.length && devido > 0) {
-    const dif = devido - dentro.reduce((s, g) => s + valIt.get(g), 0), maior = dentro.slice().sort((a, b) => valIt.get(b) - valIt.get(a))[0];
-    if (dif) valIt.set(maior, valIt.get(maior) + dif);
+    rateio = devido - dentro.reduce((s, g) => s + valIt.get(g), 0);
+    if (rateio < 0) { const maior = dentro.slice().sort((a, b) => valIt.get(b) - valIt.get(a))[0]; valIt.set(maior, valIt.get(maior) + rateio); rateio = 0; }
   }
   const linhas = itens.map(g => {
     const cat = C.CAT[g.categoria] || C.CAT.outros, fora = foraPacote(g) || cadaUm(g);
     return `<li><span class="ico">${cat.icone}</span><span class="meio"><b>${esc(g.descricao)}</b><small>${cadaUm(g) ? 'pague na hora' : foraPacote(g) ? esc(quando(g)) : esc(quando(g)) + ' · pagamento em grupo'}</small></span><span class="num"><b>${brl(valIt.get(g))}</b></span></li>`;
-  }).join('');
+  }).join('') + (rateio > 0 ? `<li><span class="ico">🤝</span><span class="meio"><b>Parte de quem não paga + arredondamento</b><small>dividida entre quem paga a viagem</small></span><span class="num"><b>${brl(rateio)}</b></span></li>` : '');
   return `<div class="titulo-sec">🗺️ Sua parte no roteiro</div><div class="cartao" style="padding:4px 16px">${linhas ? `<ul class="lista">${linhas}</ul>` : '<p class="mut peq">Nenhum item do roteiro marcado com você ainda.</p>'}
     <div class="peq" style="display:flex;justify-content:space-between;border-top:1px solid var(--lin);padding:10px 0;font-weight:700"><span>Valor da viagem</span><span class="num">${brl(devido)}</span></div>
     <div class="peq" style="display:flex;justify-content:space-between;padding:0 0 10px"><span>Já pago</span><span class="num pos">${brl(pg)}</span></div>

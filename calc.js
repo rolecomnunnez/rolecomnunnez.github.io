@@ -139,10 +139,19 @@
   }
 
   /* Saldo de cada pessoa (centavos): positivo = tem a receber; negativo = deve. */
+  /* Fora da conta de gastos/acerto: o que o grupo paga direto no local ("fora do pacote") e, com o preço de venda
+     publicado, os itens do roteiro (o grupo paga o pacote ao organizador, não divide esses custos entre si). */
+  function foraDaConta(g, d) {
+    if (g && g.info && g.info.fora) return true;
+    const vd = d && d.viagem && d.viagem.plano && d.viagem.plano.venda;
+    return !!(vd && vd.porVaga && g && g.roteiro === 'sim');
+  }
+
   function saldos(d) {
     const s = {}, pago = {}, consumo = {};
     (d.pessoas || []).forEach(p => { s[p.id] = 0; pago[p.id] = 0; consumo[p.id] = 0; });
     (d.gastos || []).forEach(g => {
+      if (foraDaConta(g, d)) return;
       if (g.modo === 'porPessoa' || g.status === 'cada_um') return; // cada um paga o seu na hora: só estimativa
       if (g.modo === 'sozinho') return; // gasto só de quem pagou: fora do acerto
       const total = valorDoGasto(g);
@@ -195,7 +204,7 @@
   function partes(d, filtro) {
     const out = {};
     (d.pessoas || []).forEach(p => { out[p.id] = 0; });
-    (d.gastos || []).filter(filtro || (() => true)).forEach(g => {
+    (d.gastos || []).filter(filtro || (g => !foraDaConta(g, d))).forEach(g => {
       const ps = dividir(g, d);
       Object.keys(ps).forEach(k => { if (k in out) out[k] += ps[k]; });
     });
@@ -310,7 +319,7 @@
 
   const brl = c => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-  const API = { CATEGORIAS, CAT, MODOS, RESTRICOES, centavos, valorDoGasto, totalItem, jaPagoItem, dividir, saldos, partes, transferencias, pix, crc16, normalizarChave, estimativa, precificar, devidoPessoa, parcelar, inteiros, brl, repartir };
+  const API = { CATEGORIAS, CAT, MODOS, RESTRICOES, centavos, valorDoGasto, totalItem, jaPagoItem, dividir, saldos, partes, transferencias, pix, crc16, normalizarChave, estimativa, precificar, devidoPessoa, parcelar, inteiros, foraDaConta, brl, repartir };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else raiz.Calc = API;
 })(this);

@@ -289,10 +289,17 @@ async function atualizar(silencioso) {
   alvo.enviando = true; status();
   try {
     const j = await chamar({ acao: 'carregar', v: alvo.v, c: alvo.c, tok: alvo.tok || '' });
-    alvo.dados = j.dados; alvo.erro = '';
+    alvo.dados = j.dados; alvo.erro = ''; alvo._falhas = 0;
     if (S === alvo) { recebeu(j); guardar(); render(); }
   } catch (e) {
     if (e.login) { alvo.enviando = false; if (S === alvo) pedirLogin(e.message); return; }
+    // Falha isolada (a planilha do Google às vezes demora ou recusa uma chamada): tenta de novo em 6 s sem mostrar "offline".
+    // Só avisa depois de 2 falhas seguidas ou se o aparelho estiver mesmo sem internet.
+    alvo._falhas = (alvo._falhas || 0) + 1;
+    if (!e.servidor && silencioso && alvo._falhas < 2 && navigator.onLine !== false) {
+      setTimeout(() => { if (S === alvo && !alvo.enviando) atualizar(true); }, 6000);
+      return;
+    }
     alvo.erro = e.servidor ? e.message : 'sem internet';
     if (!silencioso) toast(e.servidor ? e.message : 'Sem internet: mostrando o que já estava salvo.');
   } finally { alvo.enviando = false; status(); }

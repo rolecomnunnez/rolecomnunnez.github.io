@@ -588,6 +588,7 @@ function render() {
     return telaLogin();
   }
   const emViagem = !!(S && S.dados);
+  if (!emViagem) { VER_COMO = ''; const vb = $('#ver-como-bar'); if (vb) vb.remove(); document.body.classList.remove('ver-como'); }
   document.body.classList.toggle('em-viagem', emViagem);
   $('#hero-v').classList.toggle('oculto', !emViagem);
   $('#abas').classList.toggle('oculto', !emViagem);
@@ -614,8 +615,25 @@ function render() {
   $('#hero-v').classList.toggle('oculto', !v.destino && !cont);
   document.title = v.nome + ' · ' + NOME;
   $$('#abas button').forEach(b => b.setAttribute('aria-current', b.dataset.aba === ABA ? 'page' : 'false'));
-  ({ gastos: telaGastos, saldos: telaAcerto, voos: telaVoos, roteiro: telaRoteiro, plano: telaRoteiro, resumo: telaResumo, grupo: telaGrupo, preco: telaPreco }[ABA] || telaGastos)();
+  if (ABA === 'preco' || (VER_COMO && !pessoa(VER_COMO))) VER_COMO = '';
+  const eu0 = S.eu; if (VER_COMO) S.eu = VER_COMO; // desenha a tela como a pessoa escolhida (só leitura)
+  try { ({ gastos: telaGastos, saldos: telaAcerto, voos: telaVoos, roteiro: telaRoteiro, plano: telaRoteiro, resumo: telaResumo, grupo: telaGrupo, preco: telaPreco }[ABA] || telaGastos)(); }
+  finally { S.eu = eu0; }
   $$('[data-preco]').forEach(b => b.onclick = () => irAba('preco'));
+  if (VER_COMO) $('#fab').classList.add('oculto');
+  barraVerComo();
+}
+
+// Faixa de "ver como": escolher a pessoa, trocar de pessoa ou sair. A tela abaixo fica só para olhar (CSS desliga os toques).
+function barraVerComo() {
+  const velha = $('#ver-como-bar'); if (velha) velha.remove();
+  document.body.classList.toggle('ver-como', !!VER_COMO);
+  if (!VER_COMO) return;
+  const b = document.createElement('div'); b.id = 'ver-como-bar';
+  b.innerHTML = `<span>👁 Vendo como</span><select id="vc-pessoa">${(S.dados.pessoas || []).filter(p => p.id !== S.eu).map(p => `<option value="${esc(p.id)}" ${p.id === VER_COMO ? 'selected' : ''}>${esc(p.nome)}</option>`).join('')}</select><button type="button" class="btn mini" id="vc-sair">Sair</button><small class="mut">só para olhar</small>`;
+  $('#tela').before(b);
+  $('#vc-pessoa').onchange = e => { VER_COMO = e.target.value; render(); };
+  $('#vc-sair').onclick = () => { VER_COMO = ''; irAba('preco'); };
 }
 
 let carregandoMinhas = false, ultimaBuscaMinhas = 0;
@@ -1029,8 +1047,9 @@ const salvarPlano = mudar => { const pl = { ...(S.dados.viagem.plano || {}) }; m
 // O que cada um paga na hora (entrada, ingresso) fica como está. O organizador vê o valor real na própria tela.
 const fatorVenda = () => { const f = Number(((S.dados.viagem.plano || {}).venda || {}).fator); return f > 0 ? f : 1; };
 // O organizador pode "ver como o grupo vê" para conferir o que os participantes enxergam (só muda a tela dele).
-const verComoGrupo = () => souOrg() && !!ls.get('rv:vergrupo', false);
-const comoGrupo = () => !souOrg() || verComoGrupo();
+// "Ver como": enquanto VER_COMO tem o id de uma pessoa, as telas são desenhadas como se ela estivesse logada (render troca S.eu). Só para olhar.
+let VER_COMO = '';
+const comoGrupo = () => !souOrg();
 // "Fora do pacote": item que o grupo paga direto no local (ex.: hospedagem). Não leva margem e não entra na soma do pacote.
 const foraPacote = g => !!((g.info || {}).fora);
 const vit = (g, centavos, paraOutros) => (cadaUm(g) || foraPacote(g) || (!paraOutros && !comoGrupo())) ? centavos : C.inteiros(centavos * fatorVenda()); // múltiplo de R$ 5
@@ -1054,7 +1073,6 @@ function cartaoValor() {
 
 function telaPreco() {
   if (!souOrg()) { $('#tela').innerHTML = '<div class="cartao vazio"><b>🔒</b>Só o organizador vê a precificação.</div>'; return; }
-  ls.set('rv:vergrupo', false); // ao voltar para a precificação, sai do "ver como o grupo vê"
   const pl = S.dados.viagem.plano || {}, pr = pl.precif || {}, vd = pl.venda || null, rec = pl.recebido || {};
   const auto = vagasDoGrupo(), vagas = Number(pr.vagas) > 0 ? Number(pr.vagas) : auto;
   const tipo = pr.margemTipo === 'rs' ? 'rs' : 'pct';
@@ -1098,7 +1116,7 @@ function telaPreco() {
     <div class="cartao"><h2>📢 Preço para o grupo</h2>
       ${vd && vd.porVaga ? `<p style="margin:0 0 8px">Publicado: <b class="num">${brl(vd.porVaga)}</b> por pessoa${mudou ? ` <span class="neg">· o cálculo agora dá ${brl(r.porVaga)}</span>` : ''}</p>` : '<p class="mut peq" style="margin-top:-4px">Ainda não publicado: ninguém do grupo vê preço.</p>'}
       <div class="btns"><button class="btn pri" id="pr-pub">${vd && vd.porVaga ? 'Atualizar preço publicado' : 'Publicar preço'}</button>${vd && vd.porVaga ? '<button class="btn" id="pr-des">Tirar do ar</button>' : ''}</div>
-      ${vd && vd.porVaga ? `<button class="btn lg" id="pr-ver" style="margin-top:10px">👁 Ver o Roteiro como o grupo vê</button><p class="dica" style="margin-bottom:0">Na sua tela você vê os valores reais. Esse botão mostra os valores com a margem, como os participantes enxergam. Só muda a sua tela.</p>` : '<p class="dica" style="margin-bottom:0">Depois de publicar, aparece aqui um botão para ver o Roteiro como o grupo vê.</p>'}</div>`;
+      ${vd && vd.porVaga ? `<label class="cp" style="margin-top:10px"><span>👁 Ver o app como</span><select id="pr-como">${(S.dados.pessoas || []).filter(p => p.id !== S.eu).map(p => `<option value="${esc(p.id)}">${esc(p.nome)}${Number(p.peso) > 1 ? ' (casal)' : ''}</option>`).join('')}</select></label><button class="btn lg" id="pr-ver">Abrir o Acerto como essa pessoa</button><p class="dica" style="margin-bottom:0">Você navega pelas abas (Roteiro, Acerto, Resumo…) vendo o que essa pessoa vê. É só para olhar: nada pode ser alterado nesse modo.</p>` : '<p class="dica" style="margin-bottom:0">Depois de publicar, aparece aqui a opção de ver o app como cada participante.</p>'}</div>`;
   }
   if (vd && vd.porVaga) {
     const ps = S.dados.pessoas || [];
@@ -1121,7 +1139,7 @@ function telaPreco() {
   if ($('#pr-des')) $('#pr-des').onclick = () => { salvarPlano(p => { delete p.venda; }); toast('Preço tirado do ar.'); };
   $$('li[data-rec]').forEach(li => li.onclick = () => formRecebido(li.dataset.rec));
   if ($('#pr-soma')) $('#pr-soma').onclick = e => { e.preventDefault(); const t = itensRoteiro().filter(g => !cadaUm(g) && !foraPacote(g)).reduce((s, g) => s + C.totalItem(g, S.dados), 0); salvarPlano(p => { p.precif = { ...(p.precif || {}), custo: t / 100 }; }); };
-  if ($('#pr-ver')) $('#pr-ver').onclick = () => { ls.set('rv:vergrupo', true); irAba('roteiro'); };
+  if ($('#pr-ver')) $('#pr-ver').onclick = () => { VER_COMO = $('#pr-como').value; irAba('saldos'); };
 }
 
 function formRecebido(pid) {
@@ -1631,7 +1649,7 @@ function telaRoteiro() {
   const aPagar = itens.filter(g => !pago(g) && !cadaUm(g));
   const totalRot = itens.reduce((s, g) => s + C.totalItem(g, S.dados), 0);
   // Com o preço publicado, quem não organiza vê o "Valor da viagem" (cartão abaixo) no lugar da soma dos custos.
-  let html = (comoGrupo() && vendaPublicada()) ? (org ? `<div class="aviso">👁 Você está vendo como o grupo vê. <a href="#" data-preco>Voltar à visão do organizador</a></div>` : '') : `<div class="cartao destaque">
+  let html = (comoGrupo() && vendaPublicada()) ? '' : `<div class="cartao destaque">
     <div class="peq">${S.eu ? 'Sua parte na viagem (roteiro + gastos)' : 'Roteiro da viagem'}</div>
     <div style="font-size:1.9rem;font-weight:800" class="num">${S.eu ? brl(meuTotal) : brl(totalRot)}</div>
     <div class="peq">${itens.length} ${itens.length === 1 ? 'item' : 'itens'} no roteiro · ${brl(totalRot)} no total${aPagar.length ? ` · ${aPagar.length} a pagar` : ''}</div>

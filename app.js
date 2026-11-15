@@ -682,7 +682,8 @@ function telaInicio() {
   $$('#tela li[data-v]').forEach(li => li.onclick = () => abrir(li.dataset.v, li.dataset.c));
 }
 
-const cadaUm = g => g.modo === 'porPessoa' || g.status === 'cada_um'; // cada um paga o seu na hora (só estimativa)
+// Cada um paga o seu na hora (só estimativa). Exceção: "por pessoa" marcado como "entra no pacote" (info.pacote): o organizador paga o fornecedor e cobra no valor da viagem; o total é preço × quem vai.
+const cadaUm = g => (g.modo === 'porPessoa' || g.status === 'cada_um') && !(g.info && g.info.pacote);
 const pago = g => g.status !== 'previsto' && !cadaUm(g);
 const soMeu = g => g.modo === 'sozinho'; // gasto só de quem pagou: aparece na lista, mas fica fora do total do grupo e do acerto
 // Fora da conta: itens "fora do pacote" e, com o preço publicado, os do roteiro (ver C.foraDaConta).
@@ -1474,7 +1475,7 @@ function exportarAgenda() {
     const cat = C.CAT[g.categoria] || C.CAT.outros, parte = C.dividir(g, S.dados)[eu];
     const i = g.info || {};
     const desc = [g.descricao + ' · ' + v.nome,
-      cadaUm(g) ? 'Valor: ' + brl(C.centavos(g.valor)) + ' por pessoa (pago na hora)' : 'Valor total: ' + brl(vit(g, C.valorDoGasto(g))) + (parte ? ' · sua parte: ' + brl(vit(g, parte)) : ''),
+      cadaUm(g) ? 'Valor: ' + brl(C.centavos(g.valor)) + ' por pessoa (pago na hora)' : 'Valor total: ' + brl(vit(g, C.totalItem(g, S.dados))) + (parte ? ' · sua parte: ' + brl(vit(g, parte)) : ''),
       i.checkin ? 'Check-in a partir de ' + i.checkin : '', i.checkout ? 'Check-out até ' + i.checkout : '',
       i.wifi ? 'Wi-Fi: ' + i.wifi + (i.wifiSenha ? ' / senha: ' + i.wifiSenha : '') : '', i.contato ? 'Contato: ' + i.contato : '',
       i.instrucoes || '', g.obs || '', g.link ? 'Reserva: ' + g.link : '', 'App: ' + linkConvite()].filter(Boolean).join('\n');
@@ -1691,7 +1692,7 @@ function telaRoteiro() {
           ${htmlInfo(g)}
           <div class="peq" style="margin-top:6px">💰 ${cadaUm(g)
             ? (() => { const ent = Math.round(C.totalItem(g, S.dados) / C.centavos(g.valor)); return `<b class="num">${brl(C.centavos(g.valor))} por pessoa</b>, pago na hora · ${ent} ${ent === 1 ? 'entrada' : 'entradas'} (≈ ${brl(C.totalItem(g, S.dados))} no grupo)${partes[S.eu] ? ` · <b>você leva ${brl(partes[S.eu])}</b>` : ''}`; })()
-            : `<b class="num">${brl(vit(g, C.valorDoGasto(g)))}</b> para ${n} ${n === 1 ? 'pessoa' : 'pessoas'}${partes[S.eu] ? ` · <b>sua parte ${brl(vit(g, partes[S.eu]))}</b>` : ''}`}</div>
+            : `<b class="num">${brl(vit(g, C.totalItem(g, S.dados)))}</b> para ${n} ${n === 1 ? 'pessoa' : 'pessoas'}${g.modo === 'porPessoa' ? ` (${brl(vit(g, C.centavos(g.valor)))} por pessoa)` : ''}${partes[S.eu] ? ` · <b>sua parte ${brl(vit(g, partes[S.eu]))}</b>` : ''}`}</div>
           ${fora.length ? `<div class="peq mut">Não vão: ${esc(fora.join(', '))}</div>` : ''}
         </div>
       </div>
@@ -1729,7 +1730,7 @@ function textoRoteiro() {
   const v = S.dados.viagem;
   let t = `🗺️ *Roteiro: ${v.nome}*\n`;
   itensRoteiro().forEach(g => {
-    const partes = C.dividir(g, S.dados), n = Object.keys(partes).length, total = vit(g, C.valorDoGasto(g), true);
+    const partes = C.dividir(g, S.dados), n = Object.keys(partes).length, total = vit(g, C.totalItem(g, S.dados), true);
     t += `\n${(C.CAT[g.categoria] || C.CAT.outros).icone} *${g.descricao}*\n🕒 ${quando(g)}\n` + (g.local ? `📍 ${g.local}\n` : '') +
       (cadaUm(g) ? `💰 ${brl(C.centavos(g.valor))} por pessoa · cada um paga o seu na hora\n`
         : `💰 ${brl(total)}${n ? ` (≈ ${brl(Math.round(total / Object.keys(partes).reduce((s, k) => s + (Number((pessoa(k) || {}).peso) || 1), 0)))} por pessoa, ${n} ${n === 1 ? 'pessoa' : 'pessoas'})` : ''}${pago(g) ? '' : ' · a pagar'}\n`);
@@ -1743,7 +1744,7 @@ async function avisarPorEmail() {
   if (!confirm(`Mandar o roteiro por e-mail para ${comEmail.length} ${comEmail.length === 1 ? 'pessoa' : 'pessoas'} (${comEmail.map(p => p.nome.split(' ')[0]).join(', ')})?`)) return;
   const itens = itensRoteiro(), partes = C.partes(S.dados, () => true);
   const mensagens = comEmail.map(p => {
-    const linhas = itens.map(g => { const pt = C.dividir(g, S.dados)[p.id]; return `<li><b>${esc(g.descricao)}</b><br>${esc(quando(g))}${g.local ? '<br>📍 ' + esc(g.local) : ''}<br>${cadaUm(g) ? `${brl(C.centavos(g.valor))} por pessoa, cada um paga o seu na hora · ${pt ? 'leve <b>' + brl(pt) + '</b>' : 'você não vai'}` : `Total ${brl(vit(g, C.valorDoGasto(g), true))} · ${pt ? 'sua parte <b>' + brl(vit(g, pt, true)) + '</b>' : 'você não vai'}${pago(g) ? '' : ' (a pagar)'}`}</li>`; }).join('');
+    const linhas = itens.map(g => { const pt = C.dividir(g, S.dados)[p.id]; return `<li><b>${esc(g.descricao)}</b><br>${esc(quando(g))}${g.local ? '<br>📍 ' + esc(g.local) : ''}<br>${cadaUm(g) ? `${brl(C.centavos(g.valor))} por pessoa, cada um paga o seu na hora · ${pt ? 'leve <b>' + brl(pt) + '</b>' : 'você não vai'}` : `Total ${brl(vit(g, C.totalItem(g, S.dados), true))} · ${pt ? 'sua parte <b>' + brl(vit(g, pt, true)) + '</b>' : 'você não vai'}${pago(g) ? '' : ' (a pagar)'}`}</li>`; }).join('');
     return { pessoa: p.id, assunto: '🗺️ Roteiro: ' + S.dados.viagem.nome, titulo: 'Oi, ' + p.nome.split(' ')[0] + '! Este é o roteiro da viagem',
       html: `<ul>${linhas}</ul><p>${vendaPublicada() ? `Valor da sua viagem: <b>${brl(C.devidoPessoa(S.dados.viagem.plano.venda.porVaga, p.peso))}</b>.` : `Sua parte na viagem até agora: <b>${brl(partes[p.id] || 0)}</b>.`}</p><p>No app você marca se vai em cada passeio.</p>` };
   });
@@ -1767,8 +1768,9 @@ function formRoteiro(g) {
     <div class="grade2"><label class="cp"><span id="rot-rot-data">Data</span><input type="date" name="data" value="${esc(g.data)}"></label><label class="cp"><span>Hora</span><input type="time" name="hora" value="${esc(g.hora)}"></label></div>
     <label class="cp" id="bx-ate"><span>Até (saída / check-out)</span><input type="date" name="ate" value="${esc(g.ate)}"></label>
     <span style="display:block;font-size:.85rem;color:var(--mut);font-weight:600;margin-bottom:2px">Tipo de valor</span>
-    <label class="check"><input type="radio" name="tipoValor" value="total" ${cadaUm(g) ? '' : 'checked'}>Valor total, dividido entre quem vai</label>
-    <label class="check"><input type="radio" name="tipoValor" value="porPessoa" ${cadaUm(g) ? 'checked' : ''}>Valor por pessoa, cada um paga o seu na hora (entrada, ingresso)</label>
+    <label class="check"><input type="radio" name="tipoValor" value="total" ${g.modo === 'porPessoa' || g.status === 'cada_um' ? '' : 'checked'}>Valor total, dividido entre quem vai</label>
+    <label class="check"><input type="radio" name="tipoValor" value="porPessoa" ${g.modo === 'porPessoa' || g.status === 'cada_um' ? 'checked' : ''}>Valor por pessoa (entrada, ingresso, passeio cobrado por cabeça)</label>
+    <label class="check oculto" id="bx-pacote" style="margin-left:26px"><input type="checkbox" name="pacote" ${(g.info || {}).pacote ? 'checked' : ''}>Entra no pacote: eu pago o fornecedor e cobro no valor da viagem. O total acompanha quem vai (quem marcar "Não vou" sai da conta).</label>
     <label class="cp" style="margin-top:6px"><span id="rot-rot-valor">Valor total (R$)</span><input type="text" inputmode="decimal" name="valor" required value="${esc(fmtNum(g.valor))}" placeholder="0,00" style="font-size:1.2rem;font-weight:700"></label>
     <p class="dica oculto" id="dica-pp">É só uma estimativa para cada um saber quanto levar. Não entra no Acerto, porque ninguém paga pelos outros.</p>
     <div id="bx-divisao">
@@ -1814,7 +1816,8 @@ function formRoteiro(g) {
     const pp = f.tipoValor.value === 'porPessoa';
     $('#bx-divisao', f).classList.toggle('oculto', pp);
     $('#bx-pagamento', f).classList.toggle('oculto', pp);
-    $('#dica-pp', f).classList.toggle('oculto', !pp);
+    $('#bx-pacote', f).classList.toggle('oculto', !pp);
+    $('#dica-pp', f).classList.toggle('oculto', !pp || !!(f.pacote && f.pacote.checked));
     $('#rot-rot-valor', f).textContent = pp ? 'Valor por pessoa (R$)' : 'Valor total (R$)';
     $('#bx-ate', f).classList.toggle('oculto', cat !== 'hospedagem' && cat !== 'aluguel');
     $('#bx-pagador', f).classList.toggle('oculto', f.sit.value !== 'pago');
@@ -1865,7 +1868,7 @@ function formRoteiro(g) {
     }
     f.anexo.value = '';
   };
-  $$('input[name=sit], input[name=tipoValor]', f).forEach(r => r.onchange = ajusta); ajusta();
+  $$('input[name=sit], input[name=tipoValor], input[name=pacote]', f).forEach(r => r.onchange = ajusta); ajusta();
   ligarDatas(f.data, f.ate, { min: S.dados.viagem.inicio, max: S.dados.viagem.fim }, 1);
   f.onsubmit = e => {
     const b = e.submitter && e.submitter.value;
@@ -1883,9 +1886,12 @@ function formRoteiro(g) {
     if (!pp && sit === 'partes' && somaPags > C.centavos(valor)) { e.preventDefault(); return toast('Os pagamentos passam do valor total.'); }
     const usaPartes = !pp && sit === 'partes';
     const infoNova = {}; ['checkin', 'checkout', 'wifi', 'wifiSenha', 'contato', 'instrucoes'].forEach(k => { const x = String(fd.get('i_' + k) || '').trim(); if (x) infoNova[k] = x; });
+    if ((g.info || {}).fora) infoNova.fora = true; // "fora do pacote" é marcado pelo botão do cartão; não perde ao editar
+    const noPacote = pp && !!fd.get('pacote');
+    if (noPacote) infoNova.pacote = true;
     const item = { ...g, roteiro: 'sim', categoria: cat, descricao: fraseNormal(fd.get('descricao')), local: String(fd.get('local')).trim(), link: /^https?:\/\//i.test(link) ? link : (link ? 'https://' + link : ''),
       data: fd.get('data'), hora: fd.get('hora'), ate: fd.get('ate') || '', valor, moeda: 'BRL', cambio: 1, valorBRL: valor, modo: pp ? 'porPessoa' : fd.get('modo'),
-      status: pp ? 'cada_um' : usaPartes ? (somaPags >= C.centavos(valor) ? '' : 'previsto') : sit === 'pago' ? '' : 'previsto',
+      status: pp ? (noPacote ? 'previsto' : 'cada_um') : usaPartes ? (somaPags >= C.centavos(valor) ? '' : 'previsto') : sit === 'pago' ? '' : 'previsto',
       pagoPor: pp ? '' : usaPartes ? pags[0].pagoPor : sit === 'pago' ? fd.get('pagoPor') : '',
       pagamentos: usaPartes ? pags : [], anexos, info: infoNova, obs: String(fd.get('obs')).trim() };
     if (item.ate && item.data && item.ate < item.data) { e.preventDefault(); return toast('A data final está antes da inicial.'); }

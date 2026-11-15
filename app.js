@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v65'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v66'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -1845,10 +1845,10 @@ function telaRoteiro() {
         <span class="ico" style="width:42px;height:42px;border-radius:12px;background:var(--suave);display:grid;place-items:center;font-size:1.3rem;flex:none">${cat.icone}</span>
         <div style="flex:1;min-width:0">
           ${ops ? `<div style="margin-bottom:4px"><span class="selo" style="background:var(--laranja);color:#101a3c;font-weight:800">${esc(rotuloOpcao(g))}</span></div>` : ''}
-          <b style="font-size:1.05rem">${esc(g.descricao || cat.nome)}</b> ${selo(g)}
+          ${ops && g.link ? `<a href="${esc(g.link)}" target="_blank" rel="noopener" style="font-size:1.05rem;font-weight:700">${esc(g.descricao || cat.nome)} 🔗</a>` : `<b style="font-size:1.05rem">${esc(g.descricao || cat.nome)}</b>`} ${selo(g)}
           <div class="peq" style="margin-top:4px">🕒 ${quando(g)}</div>
           ${g.local ? `<div class="peq">📍 <a href="${esc(linkMapa(g.local))}" target="_blank" rel="noopener">${esc(g.local)}</a></div>` : ''}
-          ${g.link ? `<div class="peq">🔗 <a href="${esc(g.link)}" target="_blank" rel="noopener">Ver site / reserva</a></div>` : ''}
+          ${g.link && !ops ? `<div class="peq">🔗 <a href="${esc(g.link)}" target="_blank" rel="noopener">Ver site / reserva</a></div>` : ''}
           ${g.obs ? `<div class="peq mut">${esc(g.obs)}</div>` : ''}
           ${(g.anexos || []).map(a => `<div class="peq">${a.tipo === 'pdf' ? '📄' : '🖼️'} <a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.nome)}</a></div>`).join('')}
           ${htmlInfo(g)}
@@ -1973,6 +1973,7 @@ function formRoteiro(g) {
     <div class="chips" id="rot-cats" style="margin-bottom:12px">${CATS_ROTEIRO.map(c => `<button type="button" class="chip" data-c="${c}" aria-pressed="${c === cat}">${C.CAT[c].icone} ${NOME_ROTEIRO[c]}</button>`).join('')}</div>
     ${altDe(g) ? `<label class="cp"><span>Nome da opção (Hotel, Airbnb…)</span><input type="text" name="opcao" value="${esc((g.info || {}).opcao || '')}" placeholder="Ex.: Airbnb"></label>` : ''}
     <label class="cp"><span>O que é</span><input type="text" name="descricao" required value="${esc(g.descricao)}" placeholder="Ex.: Passeio de barco na Chapada" autocapitalize="sentences" data-frase></label>
+    ${altDe(g) ? `<label class="cp"><span>🔗 Link do anúncio (Airbnb, hotel…)</span><input type="text" inputmode="url" name="link" value="${esc(g.link)}" placeholder="Cole o link aqui" autocapitalize="off"></label><p class="dica" style="margin-top:-8px">Com o link, o nome acima vira o link no cartão (o endereço não aparece).</p>` : ''}
     <label class="cp"><span id="rot-rot-local">Onde (endereço ou nome do lugar)</span><input type="text" name="local" value="${esc(g.local)}" placeholder="Ex.: Chapada dos Guimarães, MT"></label>
     <p class="dica" style="margin-top:-8px">Com cidade e estado, o app calcula os km e o tempo de carro entre os pontos do roteiro.</p>
     <div class="grade2"><label class="cp"><span id="rot-rot-data">Data</span><input type="date" name="data" value="${esc(g.data)}"></label><label class="cp"><span>Hora</span><input type="time" name="hora" value="${esc(g.hora)}"></label></div>
@@ -2019,7 +2020,7 @@ function formRoteiro(g) {
     <span style="display:block;font-size:.85rem;color:var(--mut);font-weight:600;margin-bottom:4px">📎 Reservas e vouchers (PDF ou foto)</span>
     <div id="lista-anexos" style="margin-bottom:6px"></div>
     <label class="cp"><input type="file" name="anexo" accept="image/*,application/pdf" multiple></label>
-    <label class="cp"><span>Link (site, Airbnb, reserva) — opcional</span><input type="text" inputmode="url" name="link" value="${esc(g.link)}" placeholder="airbnb.com/…" autocapitalize="off"></label>
+    ${altDe(g) ? '' : `<label class="cp"><span>Link (site, Airbnb, reserva) — opcional</span><input type="text" inputmode="url" name="link" value="${esc(g.link)}" placeholder="airbnb.com/…" autocapitalize="off"></label>`}
     <label class="cp"><span>Observação</span><input type="text" name="obs" value="${esc(g.obs)}" placeholder="Ex.: levar protetor e roupa de banho"></label>`,
     `${novo ? '' : '<button class="btn perigo" value="del" formnovalidate>Excluir</button>'}<button class="btn pri" value="ok">Salvar</button>`);
   const ajusta = () => {

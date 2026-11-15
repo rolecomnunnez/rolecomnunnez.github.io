@@ -1678,6 +1678,43 @@ function semAlternativas(lista) {
   });
 }
 
+/* ---------- Resumo da viagem: noites em cada base e o que se faz em cada uma, calculado do roteiro (atualiza sozinho) ---------- */
+function htmlResumoViagem() {
+  const dia = (s, d) => { const x = new Date(s + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + d); return x.toISOString().slice(0, 10); };
+  const noites = (a, b) => Math.round((Date.parse(b + 'T12:00:00Z') - Date.parse(a + 'T12:00:00Z')) / 86400000);
+  const dd = s => s.slice(8, 10), dm = s => dd(s) + '/' + s.slice(5, 7);
+  const cidade = l => (candidatosCidade(l || '')[0] || '').trim();
+  const mesma = (a, b) => a.toLowerCase() === b.toLowerCase();
+  const itens = semAlternativas(itensRoteiro());
+  const bases = itens.filter(g => g.categoria === 'hospedagem' && g.data && g.local).sort((a, b) => a.data.localeCompare(b.data))
+    .map(g => ({ g, cidade: cidade(g.local), ini: g.data, fim: g.ate && g.ate > g.data ? g.ate : dia(g.data, 1), itens: [] }));
+  if (!bases.length) return '';
+  const curto = t => String(t || '').split(/\s[-–]\s/)[0].trim();
+  const aluguel = itens.filter(g => g.categoria === 'aluguel' && g.data);
+  itens.filter(g => !['hospedagem', 'aluguel'].includes(g.categoria) && g.data).sort((a, b) => (a.data + (a.hora || '')).localeCompare(b.data + (b.hora || ''))).forEach(g => {
+    const c = cidade(g.local);
+    const b = bases.find(x => c && mesma(x.cidade, c)) || bases.find(x => x.ini <= g.data && g.data <= x.fim) || (g.data < bases[0].ini ? bases[0] : bases[bases.length - 1]);
+    const det = [c && !mesma(c, b.cidade) ? c : '', dd(g.data), g.hora || ''].filter(Boolean).join(' · ');
+    b.itens.push(`${esc(curto(g.descricao) || NOME_ROTEIRO[g.categoria])} <span class="mut">(${esc(det)})</span>`);
+  });
+  aluguel.filter(g => g.ate).forEach(g => {
+    const b = bases.find(x => x.ini <= g.ate && g.ate <= x.fim) || bases[bases.length - 1];
+    b.itens.push(`devolução do carro <span class="mut">(${dd(g.ate)})</span>`);
+  });
+  const sobrepoe = [];
+  bases.forEach((b, i) => { if (i && b.ini < bases[i - 1].fim) sobrepoe.push(`${bases[i - 1].cidade} e ${b.cidade}`); });
+  const totalNoites = bases.reduce((s, b) => s + noites(b.ini, b.fim), 0);
+  const linhas = bases.map(b => {
+    const n = noites(b.ini, b.fim);
+    return `<div style="display:grid;grid-template-columns:62px 1fr;gap:8px;padding:6px 0;border-top:1px solid var(--lin)">
+      <div style="font-size:.74rem;font-weight:800;background:var(--laranja);color:#101a3c;border-radius:8px;padding:3px 4px;text-align:center;align-self:start;line-height:1.25">${b.ini.slice(5, 7) === b.fim.slice(5, 7) ? dd(b.ini) + ' a ' + dd(b.fim) : dm(b.ini) + ' a ' + dm(b.fim)}<br><span style="font-weight:600">${n} ${n === 1 ? 'noite' : 'noites'}</span></div>
+      <div><b>${esc(b.cidade)}</b>${b.itens.length ? `<div class="peq mut" style="line-height:1.45">${b.itens.join(' · ')}</div>` : ''}</div></div>`;
+  }).join('');
+  return `<div class="cartao" style="padding:12px 14px"><div style="font-weight:800;margin-bottom:4px">🧭 Resumo da viagem <span class="peq mut" style="font-weight:400">· atualiza sozinho</span></div>${linhas}
+    <div class="peq mut" style="border-top:1px solid var(--lin);padding-top:6px">${totalNoites} ${totalNoites === 1 ? 'noite' : 'noites'} · ${bases.length} ${bases.length === 1 ? 'base' : 'bases'}</div>
+    ${sobrepoe.length ? `<div class="peq" style="margin-top:6px;color:var(--laranja)">⚠️ As hospedagens se sobrepõem: ${esc(sobrepoe.join('; '))}. Confira as datas.</div>` : ''}</div>`;
+}
+
 /* ---------- Trajeto: liga os pontos do roteiro pela data e calcula km e tempo de carro ---------- */
 let ROTAS = ls.get('rv:rotas', {}); // "origem|destino" -> { km, min } ou { erro }
 let buscandoRotas = false;
@@ -1940,6 +1977,7 @@ function telaRoteiro() {
   if (org) html += `<div class="btns" style="margin-bottom:6px"><button class="btn pri" id="add-rot">+ Adicionar ao roteiro</button>${itens.length ? '<button class="btn" id="rot-zap">Mandar no WhatsApp</button><button class="btn" id="rot-mail">Avisar por e-mail</button>' : ''}</div>`;
   html += htmlEnquetes();
   if (!itens.length) html += `<div class="cartao vazio"><b>🗺️</b>${org ? 'Lance aqui a hospedagem, os passeios e o que mais for da viagem, com local, data e valor. O valor é dividido entre quem vai.' : 'O organizador ainda não montou o roteiro.'}</div>`;
+  html += htmlResumoViagem();
   const { trechos, pontos, km, min, ok: nKm } = kmRoteiro();
   if (trechos.length) {
     const comKm = { length: nKm };

@@ -10,7 +10,7 @@ const C = window.Calc;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSAO_APP = 'v57'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
+const VERSAO_APP = 'v58'; // acompanha o CACHE do sw.js (aparece no fim da aba Grupo, para saber se o celular pegou a versão nova)
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hoje = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const brl = C.brl;
@@ -814,7 +814,7 @@ const cobre = id => S.dados.pessoas.filter(p => p.id !== id && responsavel(p.id)
 // Acerto com preço publicado: itens do roteiro (com a margem dentro, para o grupo), valor da viagem, já pago e falta + Pix para o organizador.
 function secaoPacote(eu, meusIds, parteDe) {
   const pl = S.dados.viagem.plano || {}, vd = pl.venda, rec = pl.recebido || {};
-  const itens = itensRoteiro().filter(g => parteDe(g));
+  const itens = itensRoteiro().filter(g => parteDe(g) && !(foraPacote(g) && !cadaUm(g))); // itens tirados do pacote não aparecem aqui
   const devido = meusIds.reduce((s, id) => s + devidoDe(id), 0);
   const pg = meusIds.reduce((s, id) => s + (rec[id] || 0), 0), falta = Math.max(0, devido - pg);
   const orgP = (S.dados.pessoas || []).find(p => p.papel === 'organizador');
@@ -1772,7 +1772,7 @@ function htmlInfo(g) {
 }
 
 function selo(g) {
-  if (foraPacote(g) && !cadaUm(g)) return '<span class="selo" style="background:var(--suave);color:var(--azul)">fora do pacote · pagar no local</span>';
+  if (foraPacote(g) && !cadaUm(g)) return '<span class="selo" style="background:var(--suave);color:var(--azul)">pagamento no local</span>';
   if (cadaUm(g)) return '<span class="selo" style="background:var(--suave);color:var(--azul)">cada um paga o seu</span>';
   if ((g.pagamentos || []).length && g.status === 'previsto') {
     const pct = Math.round(C.jaPagoItem(g, S.dados) / Math.max(1, C.valorDoGasto(g)) * 100);
